@@ -1,6 +1,8 @@
+from math import ceil
+
 import cv2
 import numpy as np
-from desktopmagic.screengrab_win32 import getRectAsImage
+from mss.windows import MSS as mss
 from win32 import win32gui
 
 from rdr2_ai.module import Module
@@ -13,32 +15,33 @@ class Capture(Module):
 
     def __init__(self, windowKeyword: str, updateWindow: bool = True):
         self.hwnd = findTopWindow(windowKeyword)
-        if updateWindow:
-            self.windowPos = None
-        else:
-            self.windowPos = win32gui.GetWindowRect(self.hwnd)
+        self.sct = mss()
+        if not updateWindow:
+            self.windowRect = self.getMSSWindowRect()
+        self.updateWindow = updateWindow
 
     def captureWindow(self):
-        if self.windowPos:
-            position = self.windowPos
-        else:
-            position = win32gui.GetWindowRect(self.hwnd)
+        if self.updateWindow:
+            self.windowRect = self.getMSSWindowRect()
         
-        frame = getRectAsImage(position)
-        frame = np.array(frame)
+        frame = np.asarray(self.sct.grab(self.windowRect))
 
         # do this conversion in the return using slicing for speed
         #frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
         return frame[Capture.BORDER_CUT+Capture.RIBBON_CUT : -1*Capture.BORDER_CUT,
                      Capture.BORDER_CUT                    : -1*Capture.BORDER_CUT,
-                     ::-1] # cut out window ribbon HACK
+                     :3] # cut out window ribbon HACK
 
-    def getWindowSize(self):
-        boundingBox = win32gui.GetWindowRect(self.hwnd)
-        x1,y1,x2,y2 = boundingBox
-        xSize = abs(x2 - x1)
-        ySize = abs(y2 - y1)
+    def getMSSWindowRect(self):
+        x1,y1,x2,y2 = win32gui.GetWindowRect(self.hwnd)
+        return {'left': x1, 'top': y1, 'width': x2-x1, 'height': y2-y1}
 
-        return (xSize-2*Capture.BORDER_CUT,
-                ySize-2*Capture.BORDER_CUT-Capture.TOP_CUT_EXTRA)
+    def getRawWindowSize(self):
+        x1,y1,x2,y2 = win32gui.GetWindowRect(self.hwnd)
+        xSize = ceil(abs(x2 - x1) / self.stepSize)
+        ySize = ceil(abs(y2 - y1) / self.stepSize)
+        return ySize,xSize
+
+    def clean(self):
+        self.sct.close()

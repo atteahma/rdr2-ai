@@ -3,6 +3,7 @@ from time import sleep, time
 from dataclasses import dataclass
 import argparse
 import sys
+import asyncio
 
 from timerUtility.profiler import Profiler
 
@@ -16,6 +17,8 @@ from rdr2_ai.actionModules.chorer import Chorer,chorerConfigWindowTemplate
 from rdr2_ai.actionModules.recorder import Recorder
 from rdr2_ai.utils.capture import Capture
 
+MAIN_LOOP = asyncio.ProactorEventLoop()
+asyncio.set_event_loop(MAIN_LOOP)
 
 class AIMode(Enum):
     COOK = 'cook'
@@ -75,41 +78,28 @@ class Main(Module):
 
         frameNum = 0
         run = True
+        actions = []
         while run:
             
             frameStartTime = time()
 
             self.print(f'frame {frameNum}')
 
-            if self.profiler:
-                self.profiler.profilerBreak()
-
             # capture window
             frame = self.capture.captureWindow()
 
-            if self.profiler:
-                self.profiler.profilerBreak()
+            # get actions task
+            getActionsTask = self.actionModule.getActions(frame)
 
-            # get actions
-            actions = self.actionModule.getActions(frame)
+            # handle actions task
+            handleActionsTask = self.actionHandler.handleActions(actions)
 
-            if self.profiler:
-                self.profiler.profilerBreak()
+            # parallel :D
+            nextActions, shouldContinue = asyncio.run(self.getUltimateTask(getActionsTask,handleActionsTask))
 
-            # do actions
-            if len(actions) > 0:
-                for action in actions:
-                    if self.actionHandler.isDoneAction(action):
-                        self.print(f'finished!')
-                        run = False
-                        break
-
-                    success = self.actionHandler.doAction(action)
-                    if not success:
-                        self.print(f'error in doAction [action={action}]')
-
-            if self.profiler:
-                self.profiler.profilerBreak()
+            actions = nextActions
+            if not shouldContinue:
+                run = False
 
             if run:
                 self.actionHandler.printHeldKeys()
@@ -129,13 +119,18 @@ class Main(Module):
                     run = False
 
         # release all held keys
-        self.actionHandler.releaseAll()
+        asyncio.run(self.actionHandler.releaseAll())
 
         if self.configWindow:
             self.configWindow.cleanup()
         
         if self.profiler:
             self.profiler.printStats()
+        
+        self.capture.clean()
+    
+    async def getUltimateTask(self, getTask, handleTask):
+        return await asyncio.gather(getTask, handleTask)
 
     def initCountdown(self):
         seconds = self.initTime

@@ -1,7 +1,7 @@
-from time import sleep, time
+from time import time
 from math import floor
 from enum import IntEnum,auto
-from threading import Thread
+import asyncio
 
 from pyKey import press, pressKey, releaseKey
 import pydirectinput as pdi
@@ -10,6 +10,7 @@ from rdr2_ai import config
 from rdr2_ai.configWindow.configWindow import ConfigWindow
 from rdr2_ai.module import Module
 from rdr2_ai.controls.mouse import MouseMoveTo
+
 
 class ActionType(IntEnum):
     TAP     = auto()
@@ -35,15 +36,28 @@ class ActionHandler(Module):
         self.configWindow = configWindow
         self.showInConfigWindow = showInConfigWindow
 
-        self.workerThread = Thread()
-
-    def isDoneAction(self,action):
+    async def isDoneAction(self,action):
         return action[0] == ActionType.DONE
     
+    async def handleActions(self, actions):
+        cont = True
+        for action in actions:
+            isDone = await self.isDoneAction(action)
+            if isDone:
+                self.print(f'finished!')
+                cont = False
+                break
+
+            success = await self.doAction(action)
+            if not success:
+                self.print(f'error in doAction [action={action}]')
+        return cont
+
+
     """
     returns success
     """
-    def doAction(self,action):
+    async def doAction(self,action):
 
         actionType,key = action
 
@@ -64,7 +78,7 @@ class ActionHandler(Module):
                         return False
                     
                     pdi.mouseDown(button=pdiButton)
-                    sleep(self.mousePressLength)
+                    await asyncio.sleep(self.mousePressLength)
                     pdi.mouseUp(button=pdiButton)
                 else:
                     press(key=key,sec=self.keyPressLength)
@@ -90,7 +104,7 @@ class ActionHandler(Module):
         
         elif actionType == ActionType.RELEASE:
             if key == 'ALL':
-                self.releaseAll()
+                await self.releaseAll()
             elif key not in self.heldKeys:
                 self.print(f'attemped to release key not held [key={key}]')
             else:
@@ -110,20 +124,21 @@ class ActionHandler(Module):
                 self.heldKeys.pop(key)
 
         elif actionType == ActionType.MOVE:
-            xOff,yOff,dt,iters = self.getMouseMoveParams(key)
+            xOff,yOff,dt,iters = await self.getMouseMoveParams(key)
             for _ in range(iters):
+                st = time()
                 MouseMoveTo(xOff, yOff, 0)
-                sleep(dt)
+                await asyncio.sleep(max(dt - (time()-st),0))
             
         elif actionType == ActionType.PAUSE:
-            sleep(key)
+            await asyncio.sleep(key)
 
-        if self.showInConfigWindow and self.configWindow:
-            self.showHeldKeysInConfigWindow()
+        # if self.showInConfigWindow and self.configWindow:
+        #     self.showHeldKeysInConfigWindow()
 
         return True
     
-    def getMouseMoveParams(self, reqParams):
+    async def getMouseMoveParams(self, reqParams):
         xOff,yOff,dur = reqParams
 
         dist = (xOff ** 2 + yOff ** 2) ** 0.5
@@ -157,7 +172,7 @@ class ActionHandler(Module):
 
         self.configWindow.drawToTemplate('heldKeys', keysStr)
 
-    def releaseAll(self):
+    async def releaseAll(self):
         for key in list(self.heldKeys.keys()):
             if key.startswith('MOUSE'):
                 if key == 'MOUSE_LEFT':

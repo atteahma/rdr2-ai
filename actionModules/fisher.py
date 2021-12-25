@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from enum import Enum, IntEnum, auto
 from time import time
 from random import random
+import asyncio
 
 import cv2
 import numpy as np
@@ -93,6 +94,7 @@ class FisherStateMachine(StateMachine):
         # fish in hand
         self.pctKeepFish = pctKeepFish
         self.numFishCaught = 0
+        self.xComp = 1000
 
     def pre(self, options):
         if self.preStartTime == -1:
@@ -105,6 +107,10 @@ class FisherStateMachine(StateMachine):
             else:
                 return [], FisherState.PRE
         
+        if anyCloseEnough('grip reel', options):
+            # we are not gripping  the reel
+            return [(ActionType.HOLD, 'MOUSE_RIGHT')], FisherState.GRIPPED
+
         if len(options) == 1 and closeEnough('bait', options[0]):
             # not begun fishing yet, but is ready to
             return [(ActionType.HOLD, 'MOUSE_RIGHT')], FisherState.GRIPPED
@@ -166,7 +172,7 @@ class FisherStateMachine(StateMachine):
             # attempt to hook fish failed, but fish is still nibbling
             return [(ActionType.TAP, 'MOUSE_LEFT')], FisherState.HOOK_ATTEMPT
         
-        if len(options) == 2 and allAnyCloseEnough(options, ('reel in','reel lure','reset cast')):
+        if len(options) >= 2 and allAnyCloseEnough(options, ('reel in','reel lure','cut line','reset cast')):
             # attempt to hook fish failed, lost fish, but line is not cut
             self.reelSpeed = self.defaultReelSpeed
             return [(ActionType.HOLD, 'SPACEBAR')], FisherState.REEL_IN
@@ -220,7 +226,7 @@ class FisherStateMachine(StateMachine):
         else:
             # keep
             decisionKey = 'e'
-        return [(ActionType.TAP, decisionKey)], FisherState.PRE
+        return [(ActionType.TAP, decisionKey),(ActionType.PAUSE,2),(ActionType.MOVE, (self.xComp, 0, 1))], FisherState.PRE
 
 class Fisher(Module):
 
@@ -228,7 +234,7 @@ class Fisher(Module):
 
     def __init__(self, configWindow: ConfigWindow = None):
         self.configWindow = configWindow
-        self.optionsGetter = OptionsGetter(configWindow=configWindow, showInConfigWindow=True)
+        self.optionsGetter = OptionsGetter(configWindow=configWindow, showInConfigWindow=True, timeSkip=2)
         self.pauseMenu = PauseMenu()
         self.stateMachine = FisherStateMachine()
 
@@ -238,7 +244,7 @@ class Fisher(Module):
         self.lastYankTime = -1
         self.yankPeriod = 5
 
-        self.bufferLength = 20
+        self.bufferLength = 10
         self.calmPxMax = np.array([-1 for _ in range(self.bufferLength)], dtype=np.float32)
         self.calmState = False
         self.calmScores = np.array([-1 for _ in range(self.bufferLength)], dtype=np.float32)
@@ -255,7 +261,7 @@ class Fisher(Module):
         filtr = np.add.outer(filtr_h,filtr_w) / 2
         self.splashConvFilter = filtr ** 3
 
-    def getActions(self, frame):
+    async def getActions(self, frame):
 
         # if game is paused, instantly exit
         isPaused = self.pauseMenu.gameIsPaused(frame)
@@ -283,13 +289,13 @@ class Fisher(Module):
         fishperminute = round(numFishCaught * 60 / (time() - self.startTime), 2)
         numInvalidQueries = len(self.stateMachine.invalidQueries)
 
+        self.print(f'state = {currState}')
         if self.configWindow:
             self.configWindow.drawToTemplate('state', currState)
             self.configWindow.drawToTemplate('fishperminute',str(fishperminute))
             self.configWindow.drawToTemplate('numFishCaught', str(numFishCaught))
             self.configWindow.drawToTemplate('numInvalidQueries', str(numInvalidQueries))
         else:
-            self.print(f'state = {currState}')
             self.print(f'fish/min = {fishperminute}')
             self.print(f'fish caught = {numFishCaught}')
             self.print(f'num invalid queries = {numInvalidQueries}')
@@ -315,9 +321,9 @@ class Fisher(Module):
         else:
             # fish is freaking out, stop reeling and move the mouse around
             actions += [(ActionType.RELEASE,'SPACEBAR')]
-            controlDir = 1 if (random() < 0.5) else -1
+            controlDir = 1 #if (random() < 0.5) else -1
             actions += [(ActionType.MOVE, (-1 * controlDir * self.mouseControlAmount,0,0.25)),
-                        (ActionType.MOVE, (     controlDir * self.mouseControlAmount,0,0.25))]
+                        (ActionType.MOVE, (     controlDir * self.mouseControlAmount//2,0,0.25))]
             self.currSpeed = 5
 
             if self.configWindow:
@@ -340,7 +346,7 @@ class Fisher(Module):
 
         if calmScoreDiff[0] * calmScoreDiff[1] < 0:
             # we are at a critical point
-            if calmScoreSm2[0] < calmScoreSm2[1]:
+            if self.calmScores[0] < self.calmScores[1]:
                 # we are at a calm point
                 self.calmState = True
             else:

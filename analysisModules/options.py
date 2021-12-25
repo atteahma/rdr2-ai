@@ -17,7 +17,9 @@ class OptionsGetter(Module):
     CRAFTING = 0b01
     COOKING = 0b10
 
-    def __init__(self, configWindow: ConfigWindow, showInConfigWindow: bool = False):
+    RES_SKIP = 3
+
+    def __init__(self, configWindow: ConfigWindow, showInConfigWindow: bool = False, timeSkip: int = 1):
         self.optionsOffsetBR = config.optionsOffsetBR
         self.craftingScoreThreshold = config.craftingScoreThreshold
         self.textColorTolerance = config.textColorTolerance
@@ -29,6 +31,10 @@ class OptionsGetter(Module):
         self.minHorLineHeight = config.minHorLineHeight
         self.horLineCoverageThresh = config.horLineCoverageThresh
         self.spellcheckDistance = config.spellcheckDistance
+        
+        self.timeSkip = timeSkip
+        self.currOptions = None
+        self.doUpdateInd = 0
 
         self.winSize = None
         self.optionsBB = None
@@ -50,11 +56,11 @@ class OptionsGetter(Module):
 
     def getOptions(self, frame):
         
-        options = self.getOptionsFromFrame(frame)
-        
-        self.print(f'detected options {options}')
-
-        return options
+        if self.doUpdateInd % self.timeSkip == 0:
+            self.currOptions = self.getOptionsFromFrame(frame)
+        self.doUpdateInd += 1
+        self.print(f'detected options {self.currOptions}')
+        return self.currOptions
 
     """
     def getCraftingInfo(self,frame):
@@ -200,10 +206,10 @@ class OptionsGetter(Module):
     
     def wordsFromFrames(self, optionFramesList):
         optionWords = []
-        for i,optionFrame in enumerate(optionFramesList):
-
+        for optionFrame in optionFramesList:
+            optionFrameSkipped = optionFrame[::OptionsGetter.RES_SKIP , ::OptionsGetter.RES_SKIP]
             ocrData = pytesseract.image_to_data(
-                optionFrame ^ 255, # switch black and white
+                optionFrameSkipped ^ 255, # switch black and white
                 config=self.OCRConfig,
                 output_type=Output.DICT
             )
@@ -221,8 +227,7 @@ class OptionsGetter(Module):
         if len(optionWords) > 0:
             optionWordsClean = list(map(self.cleanOCROutput,optionWords))
 
-        # remove empty strings
-        optionWordsClean = list(filter(len, optionWordsClean))
+        optionWordsClean = list(filter(len,optionWordsClean))
 
         return optionWordsClean
     
