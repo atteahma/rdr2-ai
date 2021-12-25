@@ -180,9 +180,6 @@ class FisherStateMachine(StateMachine):
         if len(options) == 3 and allAnyCloseEnough(options, ('reel in', 'cut line', 'control')):
             # attempt to hook was successful, start off with no reeling
             return [], FisherState.FISH_HOOKED
-        
-        if len(options) == 0:
-            return [(ActionType.RELEASE, 'ALL')], FisherState.DONE_REELING
     
     def fishHooked(self, options):
         if len(options) == 3 and allAnyCloseEnough(options, ('reel in','cut line','control')):
@@ -194,10 +191,10 @@ class FisherStateMachine(StateMachine):
             self.reelSpeed = self.defaultReelSpeed
             return [(ActionType.HOLD, 'SPACEBAR')], FisherState.REEL_IN
         
-        if ((len(options) == 0) or # fish could have been lost or caught, resolved in future node
-            (len(options) == 1 and closeEnough(options[0], 'bait')) or # fish was lost
+        if ((len(options) == 1 and closeEnough(options[0], 'bait')) or # fish was lost
             (len(options) == 2 and anyCloseEnough('bait', options)) or # fish was lost
-            (len(options) == 2 and allAnyCloseEnough(options, ('keep','throw back')))): # fish was caught
+            (len(options) == 2 and allAnyCloseEnough(options, ('keep','throw back'))) or
+            (len(options) == 1 and allAnyCloseEnough(options, ('keep','throw back')))): # fish was caught
             # fully reeled in
             return [(ActionType.RELEASE, 'ALL')], FisherState.DONE_REELING
         
@@ -220,13 +217,18 @@ class FisherStateMachine(StateMachine):
         
     def fishInHand(self, options):
         self.numFishCaught += 1
+        decisionKey='e'
+        
         if random() > self.pctKeepFish:
             # throw back
             decisionKey = 'f'
-        else:
-            # keep
-            decisionKey = 'e'
-        return [(ActionType.TAP, decisionKey),(ActionType.PAUSE,2),(ActionType.MOVE, (self.xComp, 0, 1))], FisherState.PRE
+        
+        a = [(ActionType.TAP, decisionKey),(ActionType.PAUSE,2),(ActionType.MOVE, (self.xComp, 0, 1))]
+
+        if len(options) == 1:
+            a = [(ActionType.TAP, 'e'), (ActionType.TAP, 'f'),(ActionType.PAUSE,2),(ActionType.MOVE, (self.xComp, 0, 1))]
+        
+        return a, FisherState.PRE
 
 class Fisher(Module):
 
@@ -244,11 +246,10 @@ class Fisher(Module):
         self.lastYankTime = -1
         self.yankPeriod = 5
 
-        self.bufferLength = 10
+        self.bufferLength = 15
         self.calmPxMax = np.array([-1 for _ in range(self.bufferLength)], dtype=np.float32)
         self.calmState = False
         self.calmScores = np.array([-1 for _ in range(self.bufferLength)], dtype=np.float32)
-        self.convMax = -1
         self.splashMean = None
 
         # disgusting
@@ -346,7 +347,7 @@ class Fisher(Module):
 
         if calmScoreDiff[0] * calmScoreDiff[1] < 0:
             # we are at a critical point
-            if self.calmScores[0] < self.calmScores[1]:
+            if calmScoreSm2[0] < calmScoreSm2[1]:
                 # we are at a calm point
                 self.calmState = True
             else:
@@ -392,9 +393,9 @@ class Fisher(Module):
             self.configWindow.drawToTemplate('splashBoundingBox', splash_bb_im)
             
         if self.splashMean is None:
-            self.splashMean = splash_im.mean()
+            self.splashMean = splash_im
         norm_im = np.clip(splash_im - self.splashMean, 0, 1)
-        self.splashMean = (1/self.bufferLength) * splash_im.mean() + (1 - 1/self.bufferLength) * self.splashMean
+        self.splashMean = (1/self.bufferLength) * splash_im + (1 - 1/self.bufferLength) * self.splashMean
         
         # convolve to find splotch of white (splash in water)
         conv_im = convolve2d(norm_im,self.splashConvFilter,mode='valid')
@@ -402,7 +403,7 @@ class Fisher(Module):
         if self.configWindow:
             self.calmPxMax = np.roll(self.calmPxMax, 1)
             self.calmPxMax[0] = np.max(conv_im)
-            self.configWindow.drawToTemplate('splashImThresh', conv_im / max(self.calmPxMax))
+            self.configWindow.drawToTemplate('splashImThresh', conv_im / np.max(self.calmPxMax))
 
         score = np.sum(conv_im ** 2) ** 0.5 / np.product(conv_im.shape)
 
