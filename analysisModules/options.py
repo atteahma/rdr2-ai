@@ -221,6 +221,9 @@ class OptionsGetter(Module):
         if len(optionWords) > 0:
             optionWordsClean = list(map(self.cleanOCROutput,optionWords))
 
+        # remove empty strings
+        optionWordsClean = list(filter(len, optionWordsClean))
+
         return optionWordsClean
     
     def cleanOCROutput(self, s):

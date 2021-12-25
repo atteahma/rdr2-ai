@@ -1,4 +1,5 @@
-from enum import Enum
+from dataclasses import dataclass
+from enum import Enum, IntEnum, auto
 from time import time
 from random import random
 
@@ -6,12 +7,14 @@ import cv2
 import numpy as np
 from scipy.signal import convolve2d
 import matplotlib.pyplot as plt
+from pprint import PrettyPrinter
 
 from rdr2_ai.configWindow.configWindow import ConfigWindow
 from rdr2_ai.configWindow.configWindowTemplate import ConfigWindowTemplate,ContentType
 from rdr2_ai.controls.actionHandler import ActionType
 from rdr2_ai.module import Module
-from rdr2_ai.utils.utils import allAnyCloseEnough, closeEnough
+from rdr2_ai.utils.state import StateMachine
+from rdr2_ai.utils.utils import allAnyCloseEnough, anyCloseEnough, closeEnough
 from rdr2_ai.analysisModules.options import OptionsGetter
 from rdr2_ai.analysisModules.pause import PauseMenu
 
@@ -37,47 +40,210 @@ fisherConfigWindowTemplate \
     .addStaticText('Fish/min:', (1200,700), (30,100)) \
     .addContentBox('fishperminute', ContentType.Text, (1200,800), (30,100)) \
     .addStaticText('Fish Caught:', (1200, 1000), (30,200)) \
-    .addContentBox('numFishCaught', ContentType.Text, (1200, 1200), (30,100))
+    .addContentBox('numFishCaught', ContentType.Text, (1200, 1200), (30,100)) \
+    .addContentBox('state', ContentType.Text, (1200,1400), (30,300)) \
+    .addStaticText('Invalid State Queries:', (1200,1800), (30,200)) \
+    .addContentBox('numInvalidQueries', ContentType.Text, (1200, 2000), (30,100))
 
 
-class FisherState(Enum):
-    PRE      = 'PRE'
-    GRIPPED  = 'GRIPPED'
-    SWINGING = 'SWINGING'
-    CASTOUT  = 'CASTOUT'
-    REELIN   = 'REELIN'
-    FISHNIB  = 'FISHNIB'
-    FISHGOT  = 'FISHGOT'
-    CUT      = 'CUT'
+class FisherState(IntEnum):
+    PRE          = auto()
+    GRIPPED      = auto()
+    SWING_BACK   = auto()
+    CAST_OUT     = auto()
+    REEL_IN      = auto()
+    HOOK_ATTEMPT = auto()
+    FISH_HOOKED  = auto()
+    DONE_REELING = auto()
+    FISH_IN_HAND = auto()
+
+class FisherStateMachine(StateMachine):
+
+    def __init__(self, swingDuration: float = 2,
+                       defaultReelSpeed: int = 10,
+                       maxReelSpeed: int = 20,
+                       pctKeepFish: float = 0.9):
+        super().__init__()
+
+        self.actionStateFunctions[FisherState.PRE         ] = self.pre
+        self.actionStateFunctions[FisherState.GRIPPED     ] = self.gripped
+        self.actionStateFunctions[FisherState.SWING_BACK  ] = self.swingBack
+        self.actionStateFunctions[FisherState.CAST_OUT    ] = self.castOut
+        self.actionStateFunctions[FisherState.REEL_IN     ] = self.reelIn
+        self.actionStateFunctions[FisherState.HOOK_ATTEMPT] = self.hookAttempt
+        self.actionStateFunctions[FisherState.FISH_HOOKED ] = self.fishHooked
+        self.actionStateFunctions[FisherState.DONE_REELING] = self.doneReeling
+        self.actionStateFunctions[FisherState.FISH_IN_HAND] = self.fishInHand
+
+        self.setState(FisherState.PRE)
+
+        # pre
+        self.preStartTime = -1
+        self.preTimeout = 8
+
+        # swing back
+        self.swingDuration = swingDuration
+        self.swingStartTime = -1
+
+        # reel in, hook attempt, fish hooked
+        self.reelSpeed = defaultReelSpeed
+        self.defaultReelSpeed = defaultReelSpeed
+        self.maxReelSpeed = maxReelSpeed
+
+        # fish in hand
+        self.pctKeepFish = pctKeepFish
+        self.numFishCaught = 0
+
+    def pre(self, options):
+        if self.preStartTime == -1:
+            self.preStartTime = time()
+
+        if len(options) == 0:
+            # full reset after timeout
+            if (time() - self.preStartTime) > self.preTimeout:
+                return [(ActionType.RELEASE, 'ALL')], FisherState.PRE
+            else:
+                return [], FisherState.PRE
+        
+        if len(options) == 1 and closeEnough('bait', options[0]):
+            # not begun fishing yet, but is ready to
+            return [(ActionType.HOLD, 'MOUSE_RIGHT')], FisherState.GRIPPED
+
+        if len(options) == 2 and anyCloseEnough('bait', options):
+            # equip previous bait/lure
+            return [(ActionType.TAP, 'e')], FisherState.PRE
+        
+    def gripped(self, options):
+        if len(options) == 0:
+            # start swing back
+            return [(ActionType.HOLD, 'MOUSE_LEFT')], FisherState.SWING_BACK
+    
+    def swingBack(self, options):
+        if self.swingStartTime == -1:
+            self.swingStartTime = time()
+        
+        if (time() - self.swingStartTime) < self.swingDuration:
+            # still swinging
+            return [], FisherState.SWING_BACK
+        else:
+            # done swinging
+            return [(ActionType.RELEASE, 'MOUSE_LEFT')], FisherState.CAST_OUT
+    
+    def castOut(self, options):
+        if len(options) == 0:
+            # bait/lure has not hit the water yet
+            return [], FisherState.CAST_OUT
+        
+        if len(options) == 2 and allAnyCloseEnough(options, ('reel in','reel lure','reset cast')):
+            # bait/lure hit the water
+            return [(ActionType.HOLD, 'SPACEBAR')], FisherState.REEL_IN
+    
+    def reelIn(self, options):
+        if len(options) == 3 and allAnyCloseEnough(options, ('reel in','reel lure','reset cast', 'hook fish')):
+            # fish just bit
+            self.reelSpeed = self.defaultReelSpeed
+            return [(ActionType.TAP, 'MOUSE_LEFT'), (ActionType.RELEASE, 'SPACEBAR')], FisherState.HOOK_ATTEMPT
+        
+        if len(options) == 2 and allAnyCloseEnough(options, ('reel in','reel lure','reset cast')):
+            # still reeling in, go as slow as possible
+            if self.reelSpeed > 0:
+                decreaseAmount = min(2, self.reelSpeed)
+                self.reelSpeed -= decreaseAmount
+                actions = [(ActionType.TAP, 'f')]*decreaseAmount
+            else:
+                actions = []
+
+            return actions, FisherState.REEL_IN
+
+        if ((len(options) == 0) or
+            (len(options) == 1 and closeEnough(options[0], 'bait')) or
+            (len(options) == 2 and anyCloseEnough('bait', options))):
+            # fully reeled in and didn't get a fish
+            return [(ActionType.RELEASE, 'ALL')], FisherState.DONE_REELING
+    
+    def hookAttempt(self, options):
+        if len(options) == 3 and allAnyCloseEnough(options, ('reel in','reel lure','reset cast','hook fish')):
+            # attempt to hook fish failed, but fish is still nibbling
+            return [(ActionType.TAP, 'MOUSE_LEFT')], FisherState.HOOK_ATTEMPT
+        
+        if len(options) == 2 and allAnyCloseEnough(options, ('reel in','reel lure','reset cast')):
+            # attempt to hook fish failed, lost fish, but line is not cut
+            self.reelSpeed = self.defaultReelSpeed
+            return [(ActionType.HOLD, 'SPACEBAR')], FisherState.REEL_IN
+        
+        if len(options) == 3 and allAnyCloseEnough(options, ('reel in', 'cut line', 'control')):
+            # attempt to hook was successful, start off with no reeling
+            return [], FisherState.FISH_HOOKED
+        
+        if len(options) == 0:
+            return [(ActionType.RELEASE, 'ALL')], FisherState.DONE_REELING
+    
+    def fishHooked(self, options):
+        if len(options) == 3 and allAnyCloseEnough(options, ('reel in','cut line','control')):
+            # reeling in fish
+            return [], FisherState.FISH_HOOKED
+        
+        if len(options) == 2 and allAnyCloseEnough(options, ('reel in','reel lure','reset cast')):
+            # lost fish, but line is not cut
+            self.reelSpeed = self.defaultReelSpeed
+            return [(ActionType.HOLD, 'SPACEBAR')], FisherState.REEL_IN
+        
+        if ((len(options) == 0) or # fish could have been lost or caught, resolved in future node
+            (len(options) == 1 and closeEnough(options[0], 'bait')) or # fish was lost
+            (len(options) == 2 and anyCloseEnough('bait', options)) or # fish was lost
+            (len(options) == 2 and allAnyCloseEnough(options, ('keep','throw back')))): # fish was caught
+            # fully reeled in
+            return [(ActionType.RELEASE, 'ALL')], FisherState.DONE_REELING
+        
+    def doneReeling(self, options):
+        self.reelSpeed = self.defaultReelSpeed
+        self.preStartTime = -1
+        self.swingStartTime = -1
+
+        if len(options) == 0:
+            # auto-reeling in, wait it out
+            return [], FisherState.DONE_REELING
+        
+        if ((len(options) == 1 and closeEnough(options[0], 'bait')) or
+            (len(options) == 2 and anyCloseEnough('bait', options))):
+            # didn't catch a fish
+            return [], FisherState.PRE
+        
+        if len(options) == 2 and allAnyCloseEnough(options, ('keep','throw back')):
+            return [], FisherState.FISH_IN_HAND
+        
+    def fishInHand(self, options):
+        self.numFishCaught += 1
+        if random() > self.pctKeepFish:
+            # throw back
+            decisionKey = 'f'
+        else:
+            # keep
+            decisionKey = 'e'
+        return [(ActionType.TAP, decisionKey)], FisherState.PRE
 
 class Fisher(Module):
 
-    SKIP = 2
+    SKIP = 3
 
     def __init__(self, configWindow: ConfigWindow = None):
         self.configWindow = configWindow
         self.optionsGetter = OptionsGetter(configWindow=configWindow, showInConfigWindow=True)
         self.pauseMenu = PauseMenu()
+        self.stateMachine = FisherStateMachine()
 
-        self.swingBackDuration = 2
+        self.startTime = time()
 
-        self.swingBackStartTime = -1
-        self.state = FisherState.PRE
-        self.currSpeed = 5
-
-        self.splashMean = None
+        self.mouseControlAmount = 600
         self.lastYankTime = -1
+        self.yankPeriod = 5
 
-        self.calmPxMax = np.array([-1 for _ in range(20)], dtype=np.float32)
-
+        self.bufferLength = 20
+        self.calmPxMax = np.array([-1 for _ in range(self.bufferLength)], dtype=np.float32)
         self.calmState = False
-        self.calmScores = np.array([-1 for _ in range(20)],dtype=np.float32)
+        self.calmScores = np.array([-1 for _ in range(self.bufferLength)], dtype=np.float32)
         self.convMax = -1
-
-        self.numFishCaught = 0
-        self.pctFishKeep = 1.0
-
-        self.startTime = None
+        self.splashMean = None
 
         # disgusting
         KH = 10 / Fisher.SKIP
@@ -87,206 +253,86 @@ class Fisher(Module):
         filtr_h = np.append(np.append(filtr_o_h,[1]),np.flip(filtr_o_h))
         filtr_w = np.append(np.append(filtr_o_w,[1]),np.flip(filtr_o_w))
         filtr = np.add.outer(filtr_h,filtr_w) / 2
-
         self.splashConvFilter = filtr ** 3
 
     def getActions(self, frame):
 
-        if self.startTime is None:
-            self.startTime = time()
-
-        actions, success = [], False
-
         # if game is paused, instantly exit
         isPaused = self.pauseMenu.gameIsPaused(frame)
         if isPaused:
-            cv2.imwrite('./temp_issue.jpg', frame)
             self.print('game is paused.')
+            PrettyPrinter().pprint(self.stateMachine.invalidQueries)
             return [(ActionType.DONE, '')]
 
-        # get options
+        # use options to get actions
         options = self.optionsGetter.getOptions(frame)
-
-        if len(options) == 0:
-
-            if self.state == FisherState.FISHGOT:
-                # line got cut
-                self.state = FisherState.CUT
-                actions,success = [(ActionType.RELEASE,'MOUSE_RIGHT')],True
-
-            elif self.state == FisherState.REELIN:
-                # did not get a fish last swing, mouse right still held, reset
-                self.state = FisherState.GRIPPED
-                success = True
-
-            elif self.state == FisherState.GRIPPED:
-                # have not swung back yet
-                self.swingBackStartTime = time()
-                self.state = FisherState.SWINGING
-                self.currSpeed = 5
-                actions,success = [(ActionType.HOLD,'MOUSE_LEFT')],True
-
-            elif self.state == FisherState.SWINGING:
-                success = True
-                if (time() - self.swingBackStartTime) > self.swingBackDuration:
-                    # done swinging back
-                    self.swingBackStartTime = -1
-                    self.state = FisherState.CASTOUT
-                    actions,success = [(ActionType.RELEASE,'MOUSE_LEFT')],True
-            elif self.state == FisherState.PRE:
-                success = True
-            elif self.state == FisherState.CUT:
-                success = True
-
-        elif len(options) == 1:
-            option = options[0]
-
-            if closeEnough(option,'bait'):
-                # not begun fishing yet
-                if self.state not in (FisherState.CUT,FisherState.PRE,FisherState.GRIPPED):
-                    self.print(f'invalid state change {self.state} -> {FisherState.GRIPPED}')
-                
-                self.state = FisherState.GRIPPED
-                actions,success = [(ActionType.PAUSE, 0.5),
-                                   (ActionType.HOLD,'MOUSE_RIGHT')],True
         
-        elif len(options) == 2:
+        # iterate fsm
+        actions = self.stateMachine.getActionsAndUpdateState(options)
 
-            if closeEnough(options[0],'bait'): # a bit hacky
-                # option to use previous lure, do it
-                actions,success = [(ActionType.TAP,'e')],True
+        if self.stateMachine.state is FisherState.FISH_HOOKED:
+            actions += self.getFishReelInStrategyActions(frame)
 
-            elif allAnyCloseEnough(options,['grip reel','reset cast']):
-                # we mistakenly let go of right mouse at some point, this should never happen
-                self.state = FisherState.REELIN
-                self.currSpeed = 5
-                actions,success = [(ActionType.RELEASE,'MOUSE_RIGHT'),(ActionType.HOLD,'MOUSE_RIGHT')],True
-            
-            elif allAnyCloseEnough(options,['reel in','reset cast']) or allAnyCloseEnough(options,['reel lure','reset cast']):
-                # reeling in phase, no fish
-                if self.state not in (FisherState.CASTOUT,FisherState.REELIN,FisherState.FISHNIB,FisherState.FISHGOT):
-                    self.print(f'invalid state change {self.state} -> {FisherState.REELIN}')
-                
-                actions,success = [(ActionType.HOLD,'SPACEBAR')],True
-
-                success = True
-                self.state = FisherState.REELIN
-            
-            elif allAnyCloseEnough(options,['keep','throw back']):
-                # we caught a fish and it's in our hands
-                if self.state not in (FisherState.PRE,FisherState.FISHGOT):
-                    self.print(f'invalid state change {self.state} -> {FisherState.PRE}')
-                
-                self.state = FisherState.PRE
-                
-                self.numFishCaught += 1
-
-                keepFish = True
-                if random() > self.pctFishKeep:
-                    keepFish = False
-                    self.print('throwing away fish for honor')
-                else:
-                    self.print('keeping fish for money')
-
-                keepThrowChr = 'e' if keepFish else 'f'
-                actions,success = [
-                    (ActionType.RELEASE, 'SPACEBAR'),
-                    (ActionType.RELEASE, 'MOUSE_RIGHT'),
-                    (ActionType.TAP, keepThrowChr)
-                ],True # e to keep, f to throw back
-
-        elif len(options) == 3:
-            if allAnyCloseEnough(options,['reel lure','reset cast','hook fish']) or allAnyCloseEnough(options,['reel in','reset cast','hook fish']):
-                # fish just bit
-                if self.state not in (FisherState.REELIN,FisherState.FISHNIB):
-                    self.print(f'invalid state change {self.state} -> {FisherState.FISHNIB}')
-                
-                self.state = FisherState.FISHNIB
-                self.currSpeed = 5
-                actions,success = [
-                    (ActionType.RELEASE,'SPACEBAR'),
-                    (ActionType.TAP,'MOUSE_LEFT'),
-                    (ActionType.PAUSE, 1),
-                ],True
-
-            elif allAnyCloseEnough(options,['reel in','cut line','control']):
-                # fish is caught on
-                if self.state not in (FisherState.FISHNIB,FisherState.FISHGOT):
-                    self.print(f'invalid state change {self.state} -> {FisherState.FISHGOT}')
-
-                self.state = FisherState.FISHGOT
-                actions,success = [],True
-
-        if not success:
-            self.print(f'could not understand options [len(options)={len(options)}]')
-        else:
-            strategyActions = self.getFishReelInStrategyActions(frame)
-            actions += strategyActions
-
-        self.print(f'state = {self.state}')
-
-        fishperminute = round(self.numFishCaught * 60 / (time() - self.startTime),2)
-        if self.configWindow:
-            self.configWindow.drawToTemplate('fishperminute',str(fishperminute))
-            self.configWindow.drawToTemplate('numFishCaught', str(self.numFishCaught))
-        else:
-            self.print(f'fish/min = {fishperminute}')
-            self.print(f'fish caught = {self.numFishCaught}')
+        self.drawStats()
 
         return actions
     
+    def drawStats(self):
+        currState = str(FisherState(self.stateMachine.state))
+        numFishCaught = self.stateMachine.numFishCaught
+        fishperminute = round(numFishCaught * 60 / (time() - self.startTime), 2)
+        numInvalidQueries = len(self.stateMachine.invalidQueries)
+
+        if self.configWindow:
+            self.configWindow.drawToTemplate('state', currState)
+            self.configWindow.drawToTemplate('fishperminute',str(fishperminute))
+            self.configWindow.drawToTemplate('numFishCaught', str(numFishCaught))
+            self.configWindow.drawToTemplate('numInvalidQueries', str(numInvalidQueries))
+        else:
+            self.print(f'state = {currState}')
+            self.print(f'fish/min = {fishperminute}')
+            self.print(f'fish caught = {numFishCaught}')
+            self.print(f'num invalid queries = {numInvalidQueries}')
+    
     def getFishReelInStrategyActions(self, frame):
-        
         actions = []
+        if self.fishIsCalm(frame):
+            actions += [(ActionType.HOLD,'SPACEBAR')]
 
-        if self.state == FisherState.REELIN:
-            if self.currSpeed > 0:
-                actions += [(ActionType.TAP,'f')]
-                self.currSpeed -= 1
+            if self.stateMachine.reelSpeed < self.stateMachine.maxReelSpeed:
+                actions += [(ActionType.TAP,'r')]
+                self.stateMachine.reelSpeed += 1
             
-            self.fishIsCalm(frame,nofish=True)
-        
-        elif self.state == FisherState.FISHGOT:
-            if self.fishIsCalm(frame):
-                actions += [(ActionType.HOLD,'SPACEBAR')]
- 
-                if self.currSpeed < 10:
-                    actions += [(ActionType.TAP,'r')]
-                    self.currSpeed += 1
-                
-                if (self.lastYankTime == -1) or ((time() - self.lastYankTime) > 5):
-                    actions += [(ActionType.TAP, 'MOUSE_LEFT')]
-                    self.lastYankTime = time()
-                
-                if self.configWindow:
-                    self.configWindow.drawToTemplate('isCalm', 'CALM')
-                else:
-                    self.print('fish is CALM')
-
+            if (self.lastYankTime == -1) or ((time() - self.lastYankTime) > self.yankPeriod):
+                actions += [(ActionType.TAP, 'MOUSE_LEFT')]
+                self.lastYankTime = time()
+            
+            if self.configWindow:
+                self.configWindow.drawToTemplate('isCalm', 'CALM')
             else:
-                # fish is freaking out, stop reeling and move the mouse around
-                actions += [(ActionType.RELEASE,'SPACEBAR')]
-                controlDir = 1 if (random() < 0.5) else -1
-                actions += [(ActionType.MOVE, (-1 * controlDir * 800,0,0.25)),
-                            (ActionType.MOVE, (     controlDir * 800,0,0.25))]
-                self.currSpeed = 5
+                self.print('fish is CALM')
 
-                if self.configWindow:
-                    self.configWindow.drawToTemplate('isCalm', ('NOT CALM', (0,0,255)))
-                else:
-                    self.print('fish is NOT CALM')
+        else:
+            # fish is freaking out, stop reeling and move the mouse around
+            actions += [(ActionType.RELEASE,'SPACEBAR')]
+            controlDir = 1 if (random() < 0.5) else -1
+            actions += [(ActionType.MOVE, (-1 * controlDir * self.mouseControlAmount,0,0.25)),
+                        (ActionType.MOVE, (     controlDir * self.mouseControlAmount,0,0.25))]
+            self.currSpeed = 5
+
+            if self.configWindow:
+                self.configWindow.drawToTemplate('isCalm', ('NOT CALM', (0,0,255)))
+            else:
+                self.print('fish is NOT CALM')
 
         return actions
 
-    def fishIsCalm(self, im, nofish=False):
+    def fishIsCalm(self, im):
 
         score = self.getFishCalmScore(im)
 
         self.calmScores = np.roll(self.calmScores, 1)
         self.calmScores[0] = score
-
-        if nofish:
-            return None
         
         # lol cancel them... but for python readability and future expandability i will keep it as is
         calmScoreSm2 = np.mean((self.calmScores[1:],self.calmScores[:-1]), axis=0)
@@ -294,7 +340,7 @@ class Fisher(Module):
 
         if calmScoreDiff[0] * calmScoreDiff[1] < 0:
             # we are at a critical point
-            if self.calmScores[0] < self.calmScores[1]:
+            if calmScoreSm2[0] < calmScoreSm2[1]:
                 # we are at a calm point
                 self.calmState = True
             else:
@@ -305,46 +351,8 @@ class Fisher(Module):
             plt.plot(self.calmScores)
             plt.plot(calmScoreSm2)
             self.configWindow.drawToTemplate('fishCalmScorePlot', fig)
-        
 
         return self.calmState
-
-        # if nofish:
-        #     # update calmScores
-        #     self.calmScores = np.roll(self.calmScores,1)
-        #     self.calmScores[0] = score
-
-        #     return None
-
-        # # calculate middle distribution of calm scores
-        # validCalmScores = self.calmScores[self.calmScores != -1]
-        # if validCalmScores.size < 10:
-        #     # hack so that the first throw isn't volatile
-        #     self.print('CALM (hack)')
-        #     return True
-        
-        # calmScoreThresh = np.max(validCalmScores)
-
-        # # update prevScores
-        # self.prevScores = np.roll(self.prevScores,1)
-        # self.prevScores[0] = score
-        
-        # # apply threshold
-        # isNotCalm = score > calmScoreThresh
-        
-        # # make plot
-        # fig = plt.figure()
-        # plt.plot(self.prevScores)
-        # plt.hlines(calmScoreThresh,0,3,colors='red')
-        # self.configWindow.drawToTemplate('fishCalmScorePlot',fig)
-
-        # if isNotCalm: # effectively when num > 1 due to current time window length
-        #     self.print('NOT CALM')
-        #     return False
-
-        # self.print('CALM')
-        # return True
-
 
     def getFishCalmScore(self, im):
 
@@ -352,20 +360,16 @@ class Fisher(Module):
 
         gray_im = cv2.cvtColor(im,cv2.COLOR_BGR2GRAY)
 
-        if np.amax(gray_im) > 2:
-            gray_im = gray_im.astype(np.float32) / 255
+        gray_im = gray_im.astype(np.float32) / 255
 
-        if self.state is FisherState.FISHGOT:
-            # the camera moves when you get a fish
-            L = 0.46
-            R = 0.46
-            T = 0.50
-            B = 0.38
-        else:
-            L = 0.54
-            R = 0.38
-            T = 0.54
-            B = 0.34
+        L = 0.46
+        R = 0.46
+        T = 0.50
+        B = 0.38
+        # L = 0.54
+        # R = 0.38
+        # T = 0.54
+        # B = 0.34
 
         H,W = gray_im.shape
         cT = int(T*H)
@@ -384,15 +388,7 @@ class Fisher(Module):
         if self.splashMean is None:
             self.splashMean = splash_im.mean()
         norm_im = np.clip(splash_im - self.splashMean, 0, 1)
-        windowLen = 25
-        self.splashMean = (1/windowLen) * splash_im.mean() + (1 - 1/windowLen) * self.splashMean
-
-        # # normalize and cut low values
-        # norm_im = (splash_im - splash_im.mean()) / splash_im.std()
-        # norm_max = norm_im.max()
-        # norm_min = norm_im.min()
-        # sf = max(abs(norm_max),abs(norm_min))
-        # norm_im = np.clip(norm_im / sf,0,1)
+        self.splashMean = (1/self.bufferLength) * splash_im.mean() + (1 - 1/self.bufferLength) * self.splashMean
         
         # convolve to find splotch of white (splash in water)
         conv_im = convolve2d(norm_im,self.splashConvFilter,mode='valid')
@@ -400,7 +396,7 @@ class Fisher(Module):
         if self.configWindow:
             self.calmPxMax = np.roll(self.calmPxMax, 1)
             self.calmPxMax[0] = np.max(conv_im)
-            self.configWindow.drawToTemplate('splashImThresh',conv_im / max(self.calmPxMax))
+            self.configWindow.drawToTemplate('splashImThresh', conv_im / max(self.calmPxMax))
 
         score = np.sum(conv_im ** 2) ** 0.5 / np.product(conv_im.shape)
 

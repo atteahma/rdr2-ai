@@ -85,7 +85,9 @@ class ActionHandler(Module):
                 self.heldKeys[key] = time()
         
         elif actionType == ActionType.RELEASE:
-            if key not in self.heldKeys:
+            if key == 'ALL':
+                self.releaseAll()
+            elif key not in self.heldKeys:
                 self.print(f'attemped to release key not held [key={key}]')
             else:
                 if key.startswith('MOUSE'):
@@ -152,7 +154,7 @@ class ActionHandler(Module):
         self.configWindow.drawToTemplate('heldKeys', keysStr)
 
     def releaseAll(self):
-        for key in self.heldKeys.keys():
+        for key in list(self.heldKeys.keys()):
             if key.startswith('MOUSE'):
                 if key == 'MOUSE_LEFT':
                     pdiButton = pdi.LEFT
@@ -164,3 +166,5 @@ class ActionHandler(Module):
                 pdi.mouseUp(button=pdiButton)
             else:
                 releaseKey(key=key)
+
+            self.heldKeys.pop(key)

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import argparse
 import sys
 
-from timerUtility.timers import Timers
+from timerUtility.profiler import Profiler
 
 from rdr2_ai import config
 from rdr2_ai.controls.actionHandler import ActionHandler
@@ -48,7 +48,7 @@ class Main(Module):
         else:
             self.configWindow = None
         if args.doProfile:
-            self.profiler = Timers(profilerLoop=['capture','getActions','doActions','internalInfo'])
+            self.profiler = Profiler(profilerLoop=['capture','getActions','doActions','internalInfo'])
         else:
             self.profiler = None
         self.actionHandler = ActionHandler(configWindow=self.configWindow)
