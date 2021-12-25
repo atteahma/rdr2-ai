@@ -1,6 +1,7 @@
 from time import sleep, time
 from math import floor
 from enum import IntEnum,auto
+from threading import Thread
 
 from pyKey import press, pressKey, releaseKey
 import pydirectinput as pdi
@@ -20,7 +21,8 @@ class ActionType(IntEnum):
 
 class ActionHandler(Module):
 
-    def __init__(self, configWindow: ConfigWindow, showInConfigWindow: bool = False):
+    def __init__(self, configWindow: ConfigWindow,
+                       showInConfigWindow: bool = False):
         self.keyPressLength = config.keyPressLength
         self.mousePressLength = config.mousePressLength
         
@@ -32,6 +34,8 @@ class ActionHandler(Module):
         
         self.configWindow = configWindow
         self.showInConfigWindow = showInConfigWindow
+
+        self.workerThread = Thread()
 
     def isDoneAction(self,action):
         return action[0] == ActionType.DONE
