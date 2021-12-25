@@ -1,1 +1,1 @@
-"# rdr2 ai" 
+# rdr2 ai
