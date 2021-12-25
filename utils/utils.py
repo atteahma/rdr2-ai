@@ -79,6 +79,7 @@ def closeEnough(A,B,n=1):
         minW,minL = min([(A,len(A)),(B,len(B))] , key=lambda p: p[1])
         maxW,maxL = max([(A,len(A)),(B,len(B))] , key=lambda p: p[1])
     
+    # this is beyond broken... change to classical word distance
     for i in range(maxL - minL):
         subW = maxW[ i : i+minL ]
 
