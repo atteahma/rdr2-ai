@@ -17,7 +17,7 @@ class OptionsGetter(Module):
     CRAFTING = 0b01
     COOKING = 0b10
 
-    RES_SKIP = 3
+    RES_SKIP = 2
 
     def __init__(self, configWindow: ConfigWindow, showInConfigWindow: bool = False, timeSkip: int = 1):
         self.optionsOffsetBR = config.optionsOffsetBR
@@ -34,7 +34,7 @@ class OptionsGetter(Module):
         
         self.timeSkip = timeSkip
         self.currOptions = None
-        self.doUpdateInd = 0
+        self.frameIndex = 0
 
         self.winSize = None
         self.optionsBB = None
@@ -55,11 +55,12 @@ class OptionsGetter(Module):
 
 
     def getOptions(self, frame):
-        
-        if self.doUpdateInd % self.timeSkip == 0:
+        if self.frameIndex % self.timeSkip == 0:
             self.currOptions = self.getOptionsFromFrame(frame)
-        self.doUpdateInd += 1
+        self.frameIndex += 1
+
         self.print(f'detected options {self.currOptions}')
+
         return self.currOptions
 
     """

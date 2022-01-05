@@ -18,6 +18,9 @@ class Cooker(Module):
         self.configWindow = configWindow
         self.optionsGetter = OptionsGetter(configWindow=configWindow, showInConfigWindow=True)
 
+    def cleanup(self):
+        pass
+
     def getActions(self, frame):
         
         # get options

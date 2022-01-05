@@ -36,6 +36,9 @@ class Chorer(Module):
         self.currChoreState = ChoreState.GOTOCHORE # change to findchores once implemented
         self.currChoreType = None
 
+    def cleanup(self):
+        pass
+
     def getActionsForMove(self, playerPoint, targetPoint):
         choreX, choreY = targetPoint
         playerX, playerY = playerPoint

@@ -24,6 +24,9 @@ class Recorder(Module):
                     pass
             self.frameIndex += 1
     
+    def cleanup(self):
+        pass
+
     def getActions(self, frame):
         filename = 'frame'
         filename += self.delim + str(self.frameIndex)

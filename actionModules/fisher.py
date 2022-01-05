@@ -1,8 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum, IntEnum, auto
-from time import time
+from time import time, time_ns
 from random import random
-import asyncio
 
 import cv2
 import numpy as np
@@ -97,6 +96,9 @@ class FisherStateMachine(StateMachine):
         self.xComp = 1000
 
     def pre(self, options):
+        # this assumes that you have already manually
+        # equipped a bait/lure (for now, bait selection ai tbd)
+
         if self.preStartTime == -1:
             self.preStartTime = time()
 
@@ -232,12 +234,11 @@ class FisherStateMachine(StateMachine):
 
 class Fisher(Module):
 
-    SKIP = 3
+    SKIP = 2
 
     def __init__(self, configWindow: ConfigWindow = None):
         self.configWindow = configWindow
-        self.optionsGetter = OptionsGetter(configWindow=configWindow, showInConfigWindow=True, timeSkip=2)
-        self.pauseMenu = PauseMenu()
+        self.optionsGetter = OptionsGetter(configWindow=configWindow, showInConfigWindow=True)
         self.stateMachine = FisherStateMachine()
 
         self.startTime = time()
@@ -262,21 +263,30 @@ class Fisher(Module):
         filtr = np.add.outer(filtr_h,filtr_w) / 2
         self.splashConvFilter = filtr ** 3
 
-    async def getActions(self, frame):
+        # temp
+        self.optionsRuntimeHistory = []
 
-        # if game is paused, instantly exit
-        isPaused = self.pauseMenu.gameIsPaused(frame)
-        if isPaused:
-            self.print('game is paused.')
-            PrettyPrinter().pprint(self.stateMachine.invalidQueries)
-            return [(ActionType.DONE, '')]
+    def cleanup(self):
+        PrettyPrinter().pprint(self.stateMachine.invalidQueries)
+        
+        np.savetxt('optionsRuntimeHistory.csv',
+                   self.optionsRuntimeHistory,
+                   delimiter=', ',
+                   fmt='% s')
+
+    def getActions(self, frame):
+        
+        s = time_ns()
 
         # use options to get actions
         options = self.optionsGetter.getOptions(frame)
+
+        self.optionsRuntimeHistory.append(time_ns() - s)
         
         # iterate fsm
         actions = self.stateMachine.getActionsAndUpdateState(options)
 
+        # control/optimize the speed of the line while reeling
         if self.stateMachine.state is FisherState.FISH_HOOKED:
             actions += self.getFishReelInStrategyActions(frame)
 
@@ -354,10 +364,7 @@ class Fisher(Module):
                 self.calmState = False
 
         if self.configWindow:
-            fig = plt.figure()
-            plt.plot(self.calmScores)
-            plt.plot(calmScoreSm2)
-            self.configWindow.drawToTemplate('fishCalmScorePlot', fig)
+            self.configWindow.drawToTemplate('fishCalmScorePlot', [self.calmScores, calmScoreSm2])
 
         return self.calmState
 
@@ -403,7 +410,8 @@ class Fisher(Module):
         if self.configWindow:
             self.calmPxMax = np.roll(self.calmPxMax, 1)
             self.calmPxMax[0] = np.max(conv_im)
-            self.configWindow.drawToTemplate('splashImThresh', conv_im / np.max(self.calmPxMax))
+            calmNormIm = conv_im / ( 1e-9 + np.max(self.calmPxMax))
+            self.configWindow.drawToTemplate('splashImThresh', calmNormIm)
 
         score = np.sum(conv_im ** 2) ** 0.5 / np.product(conv_im.shape)
 

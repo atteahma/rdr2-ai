@@ -23,7 +23,8 @@ class ActionType(IntEnum):
 class ActionHandler(Module):
 
     def __init__(self, configWindow: ConfigWindow,
-                       showInConfigWindow: bool = False):
+                       showInConfigWindow: bool = False,
+                       printHeld = False):
         self.keyPressLength = config.keyPressLength
         self.mousePressLength = config.mousePressLength
         
@@ -33,55 +34,68 @@ class ActionHandler(Module):
         self.heldKeys = {}
         self.pressedKeys = {}
         
+        self.printHeld = printHeld
         self.configWindow = configWindow
         self.showInConfigWindow = showInConfigWindow
 
-    async def isDoneAction(self,action):
+    def isDoneAction(self,action):
         return action[0] == ActionType.DONE
     
-    async def handleActions(self, actions):
+    def handleActions(self, actions):
+        return asyncio.run(self.handleActionsAsync(actions))
+
+    async def handleActionsAsync(self, actions):
         cont = True
-        for action in actions:
-            isDone = await self.isDoneAction(action)
-            if isDone:
-                self.print(f'finished!')
+
+        for i, action in enumerate(actions):
+            if self.isDoneAction(action):
+                self.print(f'got done action.')
                 cont = False
+                lastIndex = i
                 break
+        else:
+            lastIndex = len(actions)
+        
+        # ensure no actions after 'done' are run
+        actions = actions[:lastIndex]
 
-            success = await self.doAction(action)
-            if not success:
-                self.print(f'error in doAction [action={action}]')
-        return cont
+        if actions:
+            await asyncio.gather(*[self.doAction(action) for action in actions])
 
+        if self.printHeld:
+            self.printHeldKeys()
 
-    """
-    returns success
-    """
-    async def doAction(self,action):
+        return cont            
 
-        actionType,key = action
+    async def doAction(self, action):
+        # whole thing needs a refactor
+
+        actionType, key = action
 
         self.print(f'doing action ({actionType},{key})')
 
         if actionType == ActionType.TAP:
             if key in self.heldKeys:
                 self.print(f'attempted to tap key already held [key={key}]')
-            else:
-                self.pressedKeys[key] = time()
-                if key.startswith('MOUSE'):
-                    if key == 'MOUSE_LEFT':
-                        pdiButton = pdi.LEFT
-                    elif key == 'MOUSE_RIGHT':
-                        pdiButton = pdi.RIGHT
-                    else:
-                        self.print(f'unknown mouse button {key} in actionHandler')
-                        return False
-                    
-                    pdi.mouseDown(button=pdiButton)
-                    await asyncio.sleep(self.mousePressLength)
-                    pdi.mouseUp(button=pdiButton)
+                return False
+            
+            self.pressedKeys[key] = time()
+            if key.startswith('MOUSE'):
+                if key == 'MOUSE_LEFT':
+                    pdiButton = pdi.LEFT
+                elif key == 'MOUSE_RIGHT':
+                    pdiButton = pdi.RIGHT
                 else:
-                    press(key=key,sec=self.keyPressLength)
+                    self.print(f'unknown mouse button {key} in actionHandler')
+                    return False
+                
+                pdi.mouseDown(button=pdiButton)
+                await asyncio.sleep(self.mousePressLength)
+                pdi.mouseUp(button=pdiButton)
+            else:
+                pressKey(key=key)
+                await asyncio.sleep(self.keyPressLength)
+                releaseKey(key=key)
 
         elif actionType == ActionType.HOLD:
             if key in self.heldKeys:
@@ -104,7 +118,7 @@ class ActionHandler(Module):
         
         elif actionType == ActionType.RELEASE:
             if key == 'ALL':
-                await self.releaseAll()
+                self.releaseAll()
             elif key not in self.heldKeys:
                 self.print(f'attemped to release key not held [key={key}]')
             else:
@@ -132,9 +146,6 @@ class ActionHandler(Module):
             
         elif actionType == ActionType.PAUSE:
             await asyncio.sleep(key)
-
-        # if self.showInConfigWindow and self.configWindow:
-        #     self.showHeldKeysInConfigWindow()
 
         return True
     
@@ -172,7 +183,7 @@ class ActionHandler(Module):
 
         self.configWindow.drawToTemplate('heldKeys', keysStr)
 
-    async def releaseAll(self):
+    def releaseAll(self):
         for key in list(self.heldKeys.keys()):
             if key.startswith('MOUSE'):
                 if key == 'MOUSE_LEFT':

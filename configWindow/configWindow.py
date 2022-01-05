@@ -93,12 +93,16 @@ class ConfigWindow(Module):
         # add im
         self.canvas[ loc[0] : (loc+size)[0] , loc[1] : (loc+size)[1]] = im
     
-    def drawFig(self, fig, loc, size):
+    def drawFig(self, data, loc, size):
+
+        fig = plt.figure()
+        for d in data:
+            plt.plot(d)
 
         loc = np.array(loc,dtype=np.uint)
         size = np.array(size,dtype=np.uint)
 
-        sizePLT = (size[1] // 50,size[0] // 50)
+        sizePLT = (size[1] // 25,size[0] // 25)
 
         fig.set_size_inches(*sizePLT)
         figCanvas = FigureCanvas(fig)

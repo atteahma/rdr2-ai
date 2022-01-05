@@ -3,7 +3,6 @@ from time import sleep, time
 from dataclasses import dataclass
 import argparse
 import sys
-import asyncio
 
 from timerUtility.profiler import Profiler
 
@@ -14,11 +13,10 @@ from rdr2_ai.configWindow.configWindow import ConfigWindow
 from rdr2_ai.actionModules.cooker import Cooker,cookerConfigWindowTemplate
 from rdr2_ai.actionModules.fisher import Fisher,fisherConfigWindowTemplate
 from rdr2_ai.actionModules.chorer import Chorer,chorerConfigWindowTemplate
+from rdr2_ai.analysisModules.pause import PauseMenu
 from rdr2_ai.actionModules.recorder import Recorder
 from rdr2_ai.utils.capture import Capture
-
-MAIN_LOOP = asyncio.ProactorEventLoop()
-asyncio.set_event_loop(MAIN_LOOP)
+from rdr2_ai.utils.fps import FPSCounter
 
 class AIMode(Enum):
     COOK = 'cook'
@@ -45,16 +43,21 @@ class Main(Module):
         outputWindowLocation = config.configWindowLocation
 
         # init modules
-        self.capture = Capture(captureWindowKeyword, updateWindow=False)
         if args.showConfigWindow:
             self.configWindow = ConfigWindow(outputWindowName,outputWindowLocation)
         else:
             self.configWindow = None
+        
         if args.doProfile:
+            # not currently implemented -- because python is slow
             self.profiler = Profiler(profilerLoop=['capture','getActions','doActions','internalInfo'])
         else:
             self.profiler = None
-        self.actionHandler = ActionHandler(configWindow=self.configWindow)
+
+        self.capture = Capture(captureWindowKeyword, updateWindow=False)
+        self.actionHandler = ActionHandler(configWindow=self.configWindow, printHeld=True)
+        self.fpsCounter = FPSCounter(configWindow=self.configWindow)
+        self.pauseMenu = PauseMenu()
 
         # init mode module(s)
         mode = AIMode(args.mode)
@@ -78,48 +81,39 @@ class Main(Module):
 
         frameNum = 0
         run = True
-        actions = []
-        while run:
-            
-            frameStartTime = time()
 
+        while run:
             self.print(f'frame {frameNum}')
 
             # capture window
             frame = self.capture.captureWindow()
 
-            # get actions task
-            getActionsTask = self.actionModule.getActions(frame)
+            # break if in pause menu
+            gameIsPaused = self.pauseMenu.gameIsPaused(frame)
+            if gameIsPaused:
+                run = False
+                self.print('game is paused.')
+                break
 
-            # handle actions task
-            handleActionsTask = self.actionHandler.handleActions(actions)
+            # get actions
+            actions = self.actionModule.getActions(frame)
 
-            # parallel :D
-            nextActions, shouldContinue = asyncio.run(self.getUltimateTask(getActionsTask,handleActionsTask))
-
-            actions = nextActions
+            # handle actions
+            shouldContinue = self.actionHandler.handleActions(actions)
             if not shouldContinue:
                 run = False
-
-            if run:
-                self.actionHandler.printHeldKeys()
+                break
 
             frameNum += 1
-
-            # temp, make into fps module later
-            currFPS = round(1/(time() - frameStartTime))
-            if self.configWindow:
-                self.configWindow.drawToTemplate('fps', str(currFPS))
-            else:
-                self.print(f'Frames/s = {currFPS}')
+            self.fpsCounter.tick()
 
             if self.configWindow:
                 continueLoop = self.configWindow.render()
                 if not continueLoop:
                     run = False
 
-        # release all held keys
-        asyncio.run(self.actionHandler.releaseAll())
+        self.actionModule.cleanup()        
+        self.actionHandler.releaseAll()
 
         if self.configWindow:
             self.configWindow.cleanup()
@@ -128,9 +122,6 @@ class Main(Module):
             self.profiler.printStats()
         
         self.capture.clean()
-    
-    async def getUltimateTask(self, getTask, handleTask):
-        return await asyncio.gather(getTask, handleTask)
 
     def initCountdown(self):
         seconds = self.initTime
