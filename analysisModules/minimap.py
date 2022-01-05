@@ -37,7 +37,7 @@ class MinimapReader:
 
         return minimapIm
 
-    def getPlayerPoint(self, frame=None):
+    def getCenterPoint(self, frame=None):
         if self.minimapBB is None:
             if frame is None:
                 assert False
@@ -63,7 +63,7 @@ class MinimapReader:
 
         # draw in config
         cv2Loc = np.array(loc[::-1])
-        playerLoc = np.array(self.getPlayerPoint())
+        playerLoc = np.array(self.getCenterPoint())
         lineVec = cv2Loc - playerLoc
         unitLineVec = lineVec / sqrt(lineVec[0]**2 + lineVec[1]**2)
 
@@ -94,7 +94,9 @@ class MinimapReader:
         return cv2Loc
 
     def getTargetPoint(self, frame):
-        return self.getPossibleTargetPoint(self.isolateMinimap(frame))
+        minimapImage = self.isolateMinimap(frame)
+        possibleTargetPoint = self.getPossibleTargetPoint(minimapImage)
+        return possibleTargetPoint
 
     def getPossibleTargetPoint(self, minimapIm):
         
@@ -105,7 +107,7 @@ class MinimapReader:
         bottomRight = (loc[0] + self.targetIcon.shape[1], loc[1] + self.targetIcon.shape[0])
 
         targetLoc = np.array(((topLeft[0] + bottomRight[0])//2, (topLeft[1] + bottomRight[1])//2))
-        playerLoc = np.array(self.getPlayerPoint())
+        playerLoc = np.array(self.getCenterPoint())
 
         lineVec = targetLoc - playerLoc
         unitLineVec = lineVec / sqrt(lineVec[0]**2 + lineVec[1]**2)

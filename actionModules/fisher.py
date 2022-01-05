@@ -371,15 +371,15 @@ class Fisher(Module):
     def getFishCalmScore(self, im):
 
         im = im[::Fisher.SKIP,::Fisher.SKIP]
-
         gray_im = cv2.cvtColor(im,cv2.COLOR_BGR2GRAY)
-
         gray_im = gray_im.astype(np.float32) / 255
 
         L = 0.46
         R = 0.46
         T = 0.50
         B = 0.38
+
+        # no fish bait-water bounding box
         # L = 0.54
         # R = 0.38
         # T = 0.54
@@ -400,11 +400,13 @@ class Fisher(Module):
             self.configWindow.drawToTemplate('splashBoundingBox', splash_bb_im)
             
         if self.splashMean is None:
+            # initialize
             self.splashMean = splash_im
+        
         norm_im = np.clip(splash_im - self.splashMean, 0, 1)
         self.splashMean = (1/self.bufferLength) * splash_im + (1 - 1/self.bufferLength) * self.splashMean
         
-        # convolve to find splotch of white (splash in water)
+        # convolve to find splotches of white (splash in water)
         conv_im = convolve2d(norm_im,self.splashConvFilter,mode='valid')
         
         if self.configWindow:

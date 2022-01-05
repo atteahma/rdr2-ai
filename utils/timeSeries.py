@@ -4,6 +4,14 @@ from timerUtility.timer import Timer
 
 from rdr2_ai.module import Module
 
+
+'''
+future plans...
+
+i got too excited once.
+'''
+
+
 class TimeSeries(Module):
 
     def __init__(self, bufferLength: int,
