@@ -9,6 +9,12 @@ from polyleven import levenshtein
 
 from rdr2_ai.config import freqMistakes
 
+'''
+this whole file is disgusting and needs to be refactored--on a fundamental level--to deletion
+
+eventually...
+'''
+
 def applyBBox(frame, boundingBox):
     x1,y1,x2,y2 = boundingBox
     boundedFrame = frame[y1:y2,x1:x2]
@@ -51,48 +57,6 @@ def cropCenter(im,scale=-1,scaleW=-1,scaleH=-1):
 
 def closeEnough(A,B,n=1):
     return levenshtein(A, B, n) <= n
-    # if abs(len(A) - len(B)) > n:
-    #     return False
-
-    # for r in range(1,len(freqMistakes)+1):
-    #     for replacements in combinations(freqMistakes,r):
-
-    #         Atemp = A[:]
-    #         for replacement in replacements:
-    #             Atemp = Atemp.replace(*replacement)
-            
-    #         if Atemp == B:
-    #             return True
-        
-    #     for replacements in combinations(freqMistakes,r):
-
-    #         Btemp = B[:]
-    #         for replacement in replacements:
-    #             Btemp = Btemp.replace(*replacement)
-            
-    #         if A == Btemp:
-    #             return True
-
-    # if len(A) == len(B):
-    #     minW,minL = A,len(A)
-    #     maxW,maxL = B,len(B)
-    # else:
-    #     minW,minL = min([(A,len(A)),(B,len(B))] , key=lambda p: p[1])
-    #     maxW,maxL = max([(A,len(A)),(B,len(B))] , key=lambda p: p[1])
-    
-    # # this is beyond broken... change to classical word distance
-    # for i in range(maxL - minL):
-    #     subW = maxW[ i : i+minL ]
-
-    #     numWrong = 0
-    #     for a,b in zip(subW,minW):
-    #         if a != b:
-    #             numWrong += 1
-        
-    #     if numWrong <= n:
-    #         return True
-
-    # return False
 
 def anyCloseEnough(a,lst,n=1):
     for b in lst:
