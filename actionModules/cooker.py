@@ -6,11 +6,13 @@ from rdr2_ai.analysisModules.options import OptionsGetter
 
 
 cookerConfigWindowTemplate = ConfigWindowTemplate() \
-    .setSize(height=600, width=1200) \
+    .setSize(height=800, width=1200) \
     .addStaticText('Raw Options Frame',(10,100),(40,400)) \
     .addContentBox('optionsFrameRaw',ContentType.Image,(60,100),(400,400)) \
     .addStaticText('Cleaned Options Frame',(10,600),(40,400)) \
-    .addContentBox('optionsFrameClean',ContentType.Image,(60,600),(400,400))
+    .addContentBox('optionsFrameClean',ContentType.Image,(60,600),(400,400)) \
+    .addStaticText('Frames/s:', (600,100), (30,100)) \
+    .addContentBox('fps', ContentType.Text, (600,300), (30,100))
 
 class Cooker(Module):
 
@@ -24,23 +26,19 @@ class Cooker(Module):
     def getActions(self, frame):
         
         # get options
-        options,success = self.optionsGetter.getOptions(frame)
-        if not success:
-            # not fatal, could be fixed next frame
-            pass
+        options = self.optionsGetter.getOptions(frame)
 
-        actions,success = [],False
-        
+        actions = []
         if len(options) == 1:
             option = options[0]
 
             if closeEnough(option,'cook'):
                 # we are actively cooking
-                actions,success = [(ActionType.HOLD,'SPACEBAR')],True
+                actions = [(ActionType.HOLD,'SPACEBAR')]
             
             elif closeEnough(option,'back'):
                 # we are out of this ingredient, go back to crafting
-                actions,success = [(ActionType.TAP,'f')],True
+                actions = [(ActionType.TAP,'f')]
         
         elif len(options) == 2:
             optionA,optionB = options
@@ -48,35 +46,36 @@ class Cooker(Module):
             if closeEnough(optionA,'cook another'):
                 # we already took care of the case when we run out of
                 # ingredients in the 'back' case, so cook another
-                actions,success = [(ActionType.TAP,'SPACEBAR')],True
+                actions = [(ActionType.TAP,'SPACEBAR')]
             
             elif closeEnough(optionA,'eat') and closeEnough(optionB,'stow'):
                 # release holding spacebar, then always stow
-                actions,success = [
+                actions = [
                     (ActionType.RELEASE,'SPACEBAR'),
                     (ActionType.TAP,'r'),
-                ],True
+                ]
             
             elif anyCloseEnough(optionA,['craft/cook','craftcook','craft cook']):
-                actions,success = [(ActionType.TAP,'r')],True
+                actions = [(ActionType.TAP,'r')]
 
-        elif len(options) == 3:
-            if allAnyCloseEnough(options,['show craftable','effects','leave']):
-                return [(ActionType.DONE,'')],True
+        # this makes it run forever, but makes it robust against missing word 'cook' one frame
+        # elif len(options) == 3:
+        #     if allAnyCloseEnough(options,['show craftable','effects','leave']):
+        #         actions = [(ActionType.DONE,'')]
 
-            if allAnyCloseEnough(options,['craftable','effects','leave']): # hack
-                return [(ActionType.DONE,'')],True
+        #     elif allAnyCloseEnough(options,['craftable','effects','leave']): # hack
+        #         actions = [(ActionType.DONE,'')]
 
         elif len(options) in [4,5]:
 
-            if allAnyCloseEnough(options,['recipe','show all','ingredients','effects','cook','brew','leave']):
+            if allAnyCloseEnough(options,['recipe','all','show all','ingredients','effects','cook','brew','leave']):
                 if anyCloseEnough('cook', options):
-                    actions,success = [(ActionType.TAP,'ENTER')],True
-                else:
-                    actions,success = [(ActionType.DONE, '')],True
+                    actions = [(ActionType.TAP,'ENTER')]
+                # else:
+                #     actions = [(ActionType.DONE, '')]
 
         else:
             pass
             #self.print(f'error in getActions [len(options)={len(options)}]')
 
-        return actions,success
+        return actions

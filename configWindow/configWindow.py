@@ -56,6 +56,9 @@ class ConfigWindow(Module):
             return
         
         cbInfo: ContentBoxInfo = self.template.getContentBox(name)
+        if cbInfo is None:
+            self.print(f'CONTENT BOX {name} NOT FOUND.')
+            return
 
         if cbInfo.contentType is ContentType.Image:
             self.drawImage(data,cbInfo.location,cbInfo.size)

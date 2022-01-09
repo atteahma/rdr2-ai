@@ -29,9 +29,10 @@ def erode(image, k=3, i=3):
     return cv2.erode(image, kernel, iterations=i)
 
 def segmentImage(im,minGap=25,pad=5,bgColor=0,axis=0):
+    ax = axis
     h = im.shape[0]
 
-    hor_lines = np.nonzero(np.all((im == bgColor),axis=~axis))[0]
+    hor_lines = np.nonzero(np.all((im == bgColor),axis=1-ax))[0]
     bottom_edges = (hor_lines-1)[1:]
     upper_edges = (hor_lines+1)[:-1]
     
@@ -39,9 +40,12 @@ def segmentImage(im,minGap=25,pad=5,bgColor=0,axis=0):
     upper_edges = np.clip(upper_edges[mask] - pad,0,h)
     bottom_edges = np.clip(bottom_edges[mask] + pad,0,h)
     
+    if ax == 1:
+        upper_edges, bottom_edges = bottom_edges, upper_edges
+    
     seperators = np.sort(np.concatenate((upper_edges,bottom_edges)))
     
-    return np.split(im,seperators,axis=axis)[1::2]
+    return np.split(im,seperators,axis=ax)[1::2]
 
 def cropCenter(im,scale=-1,scaleW=-1,scaleH=-1):
 
@@ -55,16 +59,17 @@ def cropCenter(im,scale=-1,scaleW=-1,scaleH=-1):
 
     return im[yOff:-yOff,xOff:-xOff]
 
-def closeEnough(A,B,n=1):
+def closeEnough(A,B,n=3):
+    n = max(2, len(A)-n, len(B)-n)
     return levenshtein(A, B, n) <= n
 
-def anyCloseEnough(a,lst,n=1):
+def anyCloseEnough(a,lst,n=3):
     for b in lst:
         if closeEnough(a,b,n=n):
             return True
     return False
 
-def allAnyCloseEnough(lstA,lstB,n=1,k=0):
+def allAnyCloseEnough(lstA,lstB,n=3,k=0):
     numWrong = 0
     for a in lstA:
         if not anyCloseEnough(a,lstB,n=n):

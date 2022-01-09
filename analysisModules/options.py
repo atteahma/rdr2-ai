@@ -2,6 +2,8 @@ from os.path import join
 
 import cv2
 import numpy as np
+import matplotlib
+import matplotlib.pyplot as plt
 import pytesseract
 from pytesseract import Output
 from spellchecker.spellchecker import SpellChecker
@@ -11,13 +13,14 @@ from rdr2_ai.configWindow.configWindow import ConfigWindow
 from rdr2_ai.module import Module
 from rdr2_ai.utils.utils import applyBBox, dilate, segmentImage
 
+matplotlib.use('TkAgg')
 
 class OptionsGetter(Module):
 
     CRAFTING = 0b01
     COOKING = 0b10
 
-    RES_SKIP = 2
+    RES_SKIP = 1
 
     def __init__(self, configWindow: ConfigWindow, showInConfigWindow: bool = False, timeSkip: int = 1):
         self.optionsOffsetBR = config.optionsOffsetBR
