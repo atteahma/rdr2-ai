@@ -89,6 +89,8 @@ class FisherStateMachine(StateMachine):
         self.reelSpeed = defaultReelSpeed
         self.defaultReelSpeed = defaultReelSpeed
         self.maxReelSpeed = maxReelSpeed
+        self.hookAttemptStartTime = -1
+        self.hookAttemptTimeout = 2.5
 
         # fish in hand
         self.pctKeepFish = pctKeepFish
@@ -119,7 +121,7 @@ class FisherStateMachine(StateMachine):
 
         if len(options) == 2 and anyCloseEnough('bait', options):
             # equip previous bait/lure
-            return [(ActionType.TAP, 'e')], FisherState.PRE
+            return [(ActionType.TAP, 'e'), (ActionType.PAUSE, 0.5), (ActionType.MOVE, (600, 0, 1))], FisherState.PRE
         
     def gripped(self, options):
         if len(options) == 0:
@@ -170,6 +172,9 @@ class FisherStateMachine(StateMachine):
             return [(ActionType.RELEASE, 'ALL')], FisherState.DONE_REELING
     
     def hookAttempt(self, options):
+        
+        self.hookAttemptStartTime = time()
+
         if len(options) == 3 and allAnyCloseEnough(options, ('reel in','reel lure','reset cast','hook fish')):
             # attempt to hook fish failed, but fish is still nibbling
             return [(ActionType.TAP, 'MOUSE_LEFT')], FisherState.HOOK_ATTEMPT
@@ -193,7 +198,8 @@ class FisherStateMachine(StateMachine):
             self.reelSpeed = self.defaultReelSpeed
             return [(ActionType.HOLD, 'SPACEBAR')], FisherState.REEL_IN
         
-        if ((len(options) == 1 and closeEnough(options[0], 'bait')) or # fish was lost
+        if ((len(options) == 0 and time() - self.hookAttemptStartTime > self.hookAttemptTimeout) or
+            (len(options) == 1 and closeEnough(options[0], 'bait')) or # fish was lost
             (len(options) == 2 and anyCloseEnough('bait', options)) or # fish was lost
             (len(options) == 2 and allAnyCloseEnough(options, ('keep','throw back'))) or
             (len(options) == 1 and allAnyCloseEnough(options, ('keep','throw back')))): # fish was caught
@@ -239,7 +245,7 @@ class Fisher(Module):
     def __init__(self, configWindow: ConfigWindow = None):
         self.configWindow = configWindow
         self.optionsGetter = OptionsGetter(configWindow=configWindow, showInConfigWindow=True)
-        self.stateMachine = FisherStateMachine()
+        self.stateMachine = FisherStateMachine(pctKeepFish=1.0)
 
         self.startTime = time()
 
@@ -262,9 +268,8 @@ class Fisher(Module):
         filtr_w = np.append(np.append(filtr_o_w,[1]),np.flip(filtr_o_w))
         filtr = np.add.outer(filtr_h,filtr_w) / 2
         self.splashConvFilter = filtr ** 3
-
-        # temp
-        self.optionsRuntimeHistory = []
+        
+        self.optionsRuntimeHistory = [] # temp
 
     def cleanup(self):
         PrettyPrinter().pprint(self.stateMachine.invalidQueries)
@@ -276,12 +281,12 @@ class Fisher(Module):
 
     def getActions(self, frame):
         
-        s = time_ns()
+        s = time_ns() # temp
 
         # use options to get actions
         options = self.optionsGetter.getOptions(frame)
 
-        self.optionsRuntimeHistory.append(time_ns() - s)
+        self.optionsRuntimeHistory.append(time_ns() - s) # temp
         
         # iterate fsm
         actions = self.stateMachine.getActionsAndUpdateState(options)
@@ -354,6 +359,7 @@ class Fisher(Module):
         # lol cancel them... but for python readability and future expandability i will keep it as is
         calmScoreSm2 = np.mean((self.calmScores[1:],self.calmScores[:-1]), axis=0)
         calmScoreDiff = calmScoreSm2[1:] - calmScoreSm2[:-1]
+        calmScoreStd = np.std(calmScoreSm2)
 
         if calmScoreDiff[0] * calmScoreDiff[1] < 0:
             # we are at a critical point

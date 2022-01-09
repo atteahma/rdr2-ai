@@ -102,7 +102,7 @@ class ConfigWindow(Module):
         loc = np.array(loc,dtype=np.uint)
         size = np.array(size,dtype=np.uint)
 
-        sizePLT = (size[1] // 25,size[0] // 25)
+        sizePLT = (size[1] // 100,size[0] // 100)
 
         fig.set_size_inches(*sizePLT)
         figCanvas = FigureCanvas(fig)

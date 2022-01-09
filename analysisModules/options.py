@@ -43,8 +43,6 @@ class OptionsGetter(Module):
         self.showInConfigWindow = showInConfigWindow
 
         self.spellcheck = SpellChecker(distance=self.spellcheckDistance)
-
-        self.craftingTemplate = cv2.imread(join('images','crafting_template.jpg'))
     
     def updateBoundingBoxes(self, frame):
         self.winSize = (frame.shape[1], frame.shape[0])
