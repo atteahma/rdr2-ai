@@ -13,7 +13,10 @@ class StateMachine:
             self.state = state
             self.currentActionStateFunction = self.actionStateFunctions[self.state]
     
-    def getActionsAndUpdateState(self, data):
+    def getActionsAndUpdateState(self, **data):
+        if len(data) == 1:
+            data = data[0]
+
         res = self.currentActionStateFunction(data)
         if res is None:
             self.invalidQueries.append((self.state, data))
