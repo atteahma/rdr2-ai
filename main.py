@@ -17,6 +17,7 @@ from rdr2_ai.analysisModules.pause import PauseMenu
 from rdr2_ai.actionModules.recorder import Recorder
 from rdr2_ai.utils.capture import Capture
 from rdr2_ai.utils.fps import FPSCounter
+from rdr2_ai.heartbeatModules.food import Food
 
 class AIMode(Enum):
     COOK = 'cook'
@@ -58,6 +59,7 @@ class Main(Module):
         self.actionHandler = ActionHandler(configWindow=self.configWindow, printHeld=True)
         self.fpsCounter = FPSCounter(configWindow=self.configWindow)
         self.pauseMenu = PauseMenu()
+        self.heartBeatModules = [Food()]
 
         # init mode module(s)
         mode = AIMode(args.mode)
@@ -87,6 +89,10 @@ class Main(Module):
 
             # capture window
             frame = self.capture.captureWindow()
+
+            # do heartbeat
+            # for hbModule in self.heartBeatModules:
+            #     hbModule.tick()
 
             # break if in pause menu
             gameIsPaused = self.pauseMenu.gameIsPaused(frame)
