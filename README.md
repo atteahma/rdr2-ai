@@ -1,4 +1,4 @@
-# rdr2 ai
+# computer vision rdr2 ai agent
 
 in development since May 2020
 
