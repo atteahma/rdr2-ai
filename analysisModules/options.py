@@ -20,7 +20,7 @@ class OptionsGetter(Module):
     CRAFTING = 0b01
     COOKING = 0b10
 
-    RES_SKIP = 1
+    RES_SKIP = 2
 
     def __init__(self, configWindow: ConfigWindow, showInConfigWindow: bool = False, timeSkip: int = 1):
         self.optionsOffsetBR = config.optionsOffsetBR
@@ -209,9 +209,9 @@ class OptionsGetter(Module):
     def wordsFromFrames(self, optionFramesList):
         optionWords = []
         for optionFrame in optionFramesList:
-            optionFrameSkipped = optionFrame[::OptionsGetter.RES_SKIP , ::OptionsGetter.RES_SKIP]
+            optionFrame = optionFrame[::OptionsGetter.RES_SKIP , ::OptionsGetter.RES_SKIP]
             ocrData = pytesseract.image_to_data(
-                optionFrameSkipped ^ 255, # switch black and white
+                optionFrame ^ 255, # switch black and white
                 config=self.OCRConfig,
                 output_type=Output.DICT
             )

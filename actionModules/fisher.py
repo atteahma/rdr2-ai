@@ -111,10 +111,6 @@ class FisherStateMachine(StateMachine):
             else:
                 return [], FisherState.PRE
         
-        if anyCloseEnough('grip reel', options):
-            # we are not gripping  the reel
-            return [(ActionType.HOLD, 'MOUSE_RIGHT')], FisherState.GRIPPED
-
         if len(options) == 1 and closeEnough('bait', options[0]):
             # not begun fishing yet, but is ready to
             return [(ActionType.HOLD, 'MOUSE_RIGHT')], FisherState.GRIPPED
@@ -122,11 +118,18 @@ class FisherStateMachine(StateMachine):
         if len(options) == 2 and anyCloseEnough('bait', options):
             # equip previous bait/lure
             return [(ActionType.TAP, 'e'), (ActionType.PAUSE, 0.5), (ActionType.MOVE, (600, 0, 1))], FisherState.PRE
+
+        if anyCloseEnough('grip reel', options):
+            # we are not gripping  the reel
+            return [(ActionType.HOLD, 'MOUSE_RIGHT')], FisherState.GRIPPED
         
     def gripped(self, options):
         if len(options) == 0:
             # start swing back
             return [(ActionType.HOLD, 'MOUSE_LEFT')], FisherState.SWING_BACK
+        elif anyCloseEnough('bait', options):
+            # we did not grip the rod
+            return [(ActionType.RELEASE, 'MOUSE_RIGHT')], FisherState.PRE
     
     def swingBack(self, options):
         if self.swingStartTime == -1:
@@ -149,8 +152,10 @@ class FisherStateMachine(StateMachine):
             return [(ActionType.HOLD, 'SPACEBAR')], FisherState.REEL_IN
     
     def reelIn(self, options):
-        if len(options) == 3 and allAnyCloseEnough(options, ('reel in','reel lure','reset cast', 'hook fish')):
-            # fish just bit
+
+        if ((len(options) > 1 and anyCloseEnough('control', options)) or
+            (len(options) == 3 and allAnyCloseEnough(options, ('reel in','reel lure','reset cast', 'hook fish')))):
+            # we should not be reeling in, we have a fish hooked or fish just bit
             self.reelSpeed = self.defaultReelSpeed
             return [(ActionType.TAP, 'MOUSE_LEFT'), (ActionType.RELEASE, 'SPACEBAR')], FisherState.HOOK_ATTEMPT
         
@@ -193,7 +198,7 @@ class FisherStateMachine(StateMachine):
             # reeling in fish
             return [], FisherState.FISH_HOOKED
         
-        if len(options) == 2 and allAnyCloseEnough(options, ('reel in','reel lure','reset cast')):
+        if len(options) == 2 and anyCloseEnough('reset cast', options):
             # lost fish, but line is not cut
             self.reelSpeed = self.defaultReelSpeed
             return [(ActionType.HOLD, 'SPACEBAR')], FisherState.REEL_IN
@@ -359,7 +364,6 @@ class Fisher(Module):
         # lol cancel them... but for python readability and future expandability i will keep it as is
         calmScoreSm2 = np.mean((self.calmScores[1:],self.calmScores[:-1]), axis=0)
         calmScoreDiff = calmScoreSm2[1:] - calmScoreSm2[:-1]
-        calmScoreStd = np.std(calmScoreSm2)
 
         if calmScoreDiff[0] * calmScoreDiff[1] < 0:
             # we are at a critical point
