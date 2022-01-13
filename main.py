@@ -85,6 +85,8 @@ class Main(Module):
         run = True
 
         while run:
+
+            self.print('-'*20)
             self.print(f'frame {frameNum}')
 
             # capture window

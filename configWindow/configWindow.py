@@ -99,8 +99,16 @@ class ConfigWindow(Module):
     def drawFig(self, data, loc, size):
 
         fig = plt.figure()
-        for d in data:
-            plt.plot(d)
+        
+        if 'series' in data:
+            for d in data['series']:
+                plt.plot(d)
+        if 'hlines' in data:
+            for h in data['hlines']:
+                plt.axhline(y=h, linestyle='dashed')
+        if 'vlines' in data:
+            for v in data['vlines']:
+                plt.axvline(x=v, linestyle='dashed')
 
         loc = np.array(loc,dtype=np.uint)
         size = np.array(size,dtype=np.uint)

@@ -47,20 +47,12 @@ class ActionHandler(Module):
     async def handleActionsAsync(self, actions):
         cont = True
 
-        for i, action in enumerate(actions):
+        for action in actions:
             if self.isDoneAction(action):
                 self.print(f'got done action.')
                 cont = False
-                lastIndex = i
                 break
-        else:
-            lastIndex = len(actions)
-        
-        # ensure no actions after 'done' are run
-        actions = actions[:lastIndex]
-
-        if actions:
-            await asyncio.gather(*[self.doAction(action) for action in actions])
+            await self.doAction(action)
 
         if self.printHeld:
             self.printHeldKeys()

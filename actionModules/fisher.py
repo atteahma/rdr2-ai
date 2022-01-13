@@ -14,6 +14,7 @@ from rdr2_ai.configWindow.configWindowTemplate import ConfigWindowTemplate,Conte
 from rdr2_ai.controls.actionHandler import ActionType
 from rdr2_ai.module import Module
 from rdr2_ai.utils.state import StateMachine
+from rdr2_ai.utils.timeSeries import TimeSeries
 from rdr2_ai.utils.utils import allAnyCloseEnough, anyCloseEnough, closeEnough
 from rdr2_ai.analysisModules.options import OptionsGetter
 from rdr2_ai.analysisModules.pause import PauseMenu
@@ -24,8 +25,6 @@ fisherConfigWindowTemplate \
     .setSize(height=1250, width=2200) \
     .addStaticText('Splash (raw)', (10,100), (40,400)) \
     .addContentBox('splashImRaw', ContentType.Image, (60,100), (300,600)) \
-    .addStaticText('Splash (MA + globconv + MMAX)', (400+10,100), (40,600)) \
-    .addContentBox('splashImThresh', ContentType.Image, (400+60,100), (300,600)) \
     .addStaticText('Calm Score Diff Interpolation', (800+10,100), (40,600)) \
     .addContentBox('fishCalmScorePlot', ContentType.Plot, (800+60,100), (300,600)) \
     .addStaticText('Splash Bounding Box', (10,1500-200), (40,400)) \
@@ -44,6 +43,18 @@ fisherConfigWindowTemplate \
     .addContentBox('state', ContentType.Text, (1200,1400), (30,300)) \
     .addStaticText('Invalid State Queries:', (1200,1800), (30,200)) \
     .addContentBox('numInvalidQueries', ContentType.Text, (1200, 2000), (30,100))
+
+# V1 algo
+# fisherConfigWindowTemplate \
+#     .addStaticText('Splash (MA + globconv + MMAX)', (400+10,100), (40,600)) \
+#     .addContentBox('splashImThresh', ContentType.Image, (400+60,100), (300,600)) \
+
+# V2 algo
+fisherConfigWindowTemplate \
+    .addStaticText('Bright Px (MA+thresh)', (400+10,100), (40,280)) \
+    .addContentBox('brightIm', ContentType.Image, (400+60,100), (140,280)) \
+    .addStaticText('Vertical Blobs', (400+10,100 + 300), (40,280)) \
+    .addContentBox('blobIm', ContentType.Image, (400+60,100 + 300), (140,280)) \
 
 
 class FisherState(IntEnum):
@@ -91,6 +102,7 @@ class FisherStateMachine(StateMachine):
         self.maxReelSpeed = maxReelSpeed
         self.hookAttemptStartTime = -1
         self.hookAttemptTimeout = 2.5
+        self.fishLostCnt = 0
 
         # fish in hand
         self.pctKeepFish = pctKeepFish
@@ -196,12 +208,17 @@ class FisherStateMachine(StateMachine):
     def fishHooked(self, options):
         if len(options) == 3 and allAnyCloseEnough(options, ('reel in','cut line','control')):
             # reeling in fish
+            self.fishLostCnt = 0
             return [], FisherState.FISH_HOOKED
         
         if len(options) == 2 and anyCloseEnough('reset cast', options):
-            # lost fish, but line is not cut
-            self.reelSpeed = self.defaultReelSpeed
-            return [(ActionType.HOLD, 'SPACEBAR')], FisherState.REEL_IN
+            # posssibly lost fish, but line is not cut
+            self.fishLostCnt += 1
+            if self.fishLostCnt > 3:
+                self.fishLostCnt = 0
+                self.reelSpeed = self.defaultReelSpeed
+                return [(ActionType.HOLD, 'SPACEBAR')], FisherState.REEL_IN
+            return [], FisherState.FISH_HOOKED
         
         if ((len(options) == 0 and time() - self.hookAttemptStartTime > self.hookAttemptTimeout) or
             (len(options) == 1 and closeEnough(options[0], 'bait')) or # fish was lost
@@ -209,6 +226,7 @@ class FisherStateMachine(StateMachine):
             (len(options) == 2 and allAnyCloseEnough(options, ('keep','throw back'))) or
             (len(options) == 1 and allAnyCloseEnough(options, ('keep','throw back')))): # fish was caught
             # fully reeled in
+            self.fishLostCnt = 0
             return [(ActionType.RELEASE, 'ALL')], FisherState.DONE_REELING
         
     def doneReeling(self, options):
@@ -230,18 +248,15 @@ class FisherStateMachine(StateMachine):
         
     def fishInHand(self, options):
         self.numFishCaught += 1
-        decisionKey='e'
+        decisionActions = [(ActionType.TAP, 'e'),(ActionType.PAUSE, 0.5),(ActionType.TAP, 'f')]
         
         if random() > self.pctKeepFish:
             # throw back
-            decisionKey = 'f'
+            decisionActions = decisionActions[::-1]
         
-        a = [(ActionType.TAP, decisionKey),(ActionType.PAUSE,2),(ActionType.MOVE, (self.xComp, 0, 1))]
-
-        if len(options) == 1:
-            a = [(ActionType.TAP, 'e'), (ActionType.TAP, 'f'),(ActionType.PAUSE,2),(ActionType.MOVE, (self.xComp, 0, 1))]
+        actions = decisionActions + [(ActionType.PAUSE,2),(ActionType.MOVE, (self.xComp, 0, 1))]
         
-        return a, FisherState.PRE
+        return actions, FisherState.PRE
 
 class Fisher(Module):
 
@@ -258,23 +273,40 @@ class Fisher(Module):
         self.lastYankTime = -1
         self.yankPeriod = 5
 
-        self.bufferLength = 15
-        self.calmPxMax = np.array([-1 for _ in range(self.bufferLength)], dtype=np.float32)
-        self.calmState = False
-        self.calmScores = np.array([-1 for _ in range(self.bufferLength)], dtype=np.float32)
-        self.splashMean = None
+        self.optionsRuntimeHistory = [] # temp
 
-        # disgusting
-        KH = 10 / Fisher.SKIP
-        KW = 15 / Fisher.SKIP
+        self.calmState = True
+        self.calmScores = TimeSeries(bufferLength=15)
+
+        # V1 algo
+        # self.bufferLength = 15
+        # self.calmPxMax = np.array([-1 for _ in range(self.bufferLength)], dtype=np.float32)
+        # self.splashMean = None
+        # # disgusting
+        # KH = 10 / Fisher.SKIP
+        # KW = 15 / Fisher.SKIP
+        # filtr_o_h = np.linspace(0,1,int(KH))
+        # filtr_o_w = np.linspace(0,1,int(KW))
+        # filtr_h = np.append(np.append(filtr_o_h,[1]),np.flip(filtr_o_h))
+        # filtr_w = np.append(np.append(filtr_o_w,[1]),np.flip(filtr_o_w))
+        # filtr = np.add.outer(filtr_h,filtr_w) / 2
+        # self.splashConvFilter = filtr ** 3
+
+        # V2 algo
+        self.meansWhileCalm = TimeSeries(bufferLength=5)
+
+        KH = round(25 / Fisher.SKIP)
+        KW = round(35 / Fisher.SKIP)
         filtr_o_h = np.linspace(0,1,int(KH))
         filtr_o_w = np.linspace(0,1,int(KW))
         filtr_h = np.append(np.append(filtr_o_h,[1]),np.flip(filtr_o_h))
         filtr_w = np.append(np.append(filtr_o_w,[1]),np.flip(filtr_o_w))
-        filtr = np.add.outer(filtr_h,filtr_w) / 2
-        self.splashConvFilter = filtr ** 3
-        
-        self.optionsRuntimeHistory = [] # temp
+        filtr_h = np.expand_dims(filtr_h, axis=1)
+        filtr_w = np.expand_dims(filtr_w, axis=1)
+        splashConvFilter = filtr_h @ filtr_w.T
+        splashConvFilter = splashConvFilter.T
+        splashConvFilter = splashConvFilter ** 2
+        self.splashConvFilter = splashConvFilter / np.sum(splashConvFilter)
 
     def cleanup(self):
         PrettyPrinter().pprint(self.stateMachine.invalidQueries)
@@ -296,9 +328,16 @@ class Fisher(Module):
         # iterate fsm
         actions = self.stateMachine.getActionsAndUpdateState(options)
 
+        if self.stateMachine.state is FisherState.REEL_IN:
+            self.calmState = True
+        elif self.stateMachine.state is FisherState.HOOK_ATTEMPT:
+            self.calmState = False
+
         # control/optimize the speed of the line while reeling
         if self.stateMachine.state is FisherState.FISH_HOOKED:
             actions += self.getFishReelInStrategyActions(frame)
+        elif self.stateMachine.state is FisherState.REEL_IN:
+            self.getFishCalmScore(frame)
 
         self.drawStats()
 
@@ -358,23 +397,52 @@ class Fisher(Module):
 
         score = self.getFishCalmScore(im)
 
-        self.calmScores = np.roll(self.calmScores, 1)
-        self.calmScores[0] = score
+        self.calmScores.logDataPoint(score)
         
-        # lol cancel them... but for python readability and future expandability i will keep it as is
-        calmScoreSm2 = np.mean((self.calmScores[1:],self.calmScores[:-1]), axis=0)
-        calmScoreDiff = calmScoreSm2[1:] - calmScoreSm2[:-1]
+        STD_TAIL = 6
+        calmScoreSm = self.calmScores.expSmooth(0.6)
+        calmScoreStd = np.std(calmScoreSm[1:1+STD_TAIL])
 
-        if calmScoreDiff[0] * calmScoreDiff[1] < 0:
-            # we are at a critical point
-            if calmScoreSm2[0] < calmScoreSm2[1]:
-                # we are at a calm point
-                self.calmState = True
-            else:
-                self.calmState = False
+        topThresh = calmScoreSm[1] + calmScoreStd
+        botThresh = calmScoreSm[1] - 0.5*calmScoreStd
+
+        if calmScoreSm[0] > topThresh:
+            self.calmState = False
+        if calmScoreSm[0] < botThresh:
+            self.calmState = True
+
+        # calmScoreDiff = calmScoreSm[1:] - calmScoreSm[:-1]
+        # if calmScoreDiff[0] * calmScoreDiff[1] < 0:
+        #     # we are at a critical point
+        #     if calmScoreSm[0] < calmScoreSm[1]:
+        #         # we are at a calm point
+        #         self.calmState = True
+        #     else:
+        #         self.calmState = False
+
+        with open('./profiling/calmScoreHistory.csv', mode='a+') as csHFile:
+            np.savetxt(csHFile, [self.calmScores.raw(),
+                                 calmScoreSm,
+                                 topThresh,
+                                 botThresh],
+                        delimiter=', ',
+                        fmt='%s')
+            self.print('saved calm scores')
 
         if self.configWindow:
-            self.configWindow.drawToTemplate('fishCalmScorePlot', [self.calmScores, calmScoreSm2])
+            self.configWindow.drawToTemplate(
+                'fishCalmScorePlot',
+                {
+                    'series': [
+                        self.calmScores.raw(),
+                        calmScoreSm,
+                    ],
+                    'hlines': [
+                        topThresh,
+                        botThresh,
+                    ]
+                }
+            )
 
         return self.calmState
 
@@ -409,6 +477,35 @@ class Fisher(Module):
             cv2.rectangle(splash_bb_im, (cL,cT), (W-cR,H-cB), (0,0,255), thickness=5)
             self.configWindow.drawToTemplate('splashBoundingBox', splash_bb_im)
             
+        score = self.getV2Score(splash_im)
+
+        return score
+
+    def getV2Score(self, splashIm):
+
+        splashImMean = np.mean(splashIm)
+        
+        if self.calmState:
+            self.meansWhileCalm.logDataPoint(splashImMean)
+        
+        # isolate bright parts (will include sun reflection on water as noise, and splashes)
+        splashImMA = 2 * (splashIm - self.meansWhileCalm.mean()).astype(np.float32)
+        splashImBrights = np.clip(splashImMA, 0, 1)
+
+        if self.configWindow:
+            self.configWindow.drawToTemplate('brightIm', splashImBrights)
+        
+        # identify vertical blobs (trying to isolate splashes)
+        verticalBlobIm = convolve2d(splashImBrights, self.splashConvFilter, mode='valid')
+
+        if self.configWindow:
+            self.configWindow.drawToTemplate('blobIm', verticalBlobIm)
+
+        calmScore = np.sum(verticalBlobIm) / np.product(verticalBlobIm.shape)
+
+        return calmScore
+
+    def getV1Score(self, splash_im):
         if self.splashMean is None:
             # initialize
             self.splashMean = splash_im
@@ -428,4 +525,4 @@ class Fisher(Module):
         score = np.sum(conv_im ** 2) ** 0.5 / np.product(conv_im.shape)
 
         return score
-        
+    
