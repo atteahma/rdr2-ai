@@ -65,9 +65,11 @@ class ConfigWindow(Module):
             self.drawText(st.text,st.location,st.size)
     
     def startLoop(self):
+        self.print('starting event loop.')
         self.drawProcess.start()
     
     def endLoop(self):
+        self.print('ending event loop.')
         self.drawProcess.terminate()
 
     def drawLoop(self):

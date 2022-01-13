@@ -83,6 +83,7 @@ class Main(Module):
 
         frameNum = 0
         run = True
+        
         if self.configWindow:
             self.configWindow.startLoop()
 
@@ -103,7 +104,7 @@ class Main(Module):
             actions = self.actionModule.getActions(frame)
 
             # handle actions
-            shouldContinue = self.actionHandler.handleActions(actions)
+            shouldContinue = self.actionHandler.doActions(actions)
             if not shouldContinue:
                 run = False
                 break
@@ -112,8 +113,8 @@ class Main(Module):
             self.fpsCounter.tick()
 
         self.capture.cleanup()
-        self.actionModule.cleanup()        
-        self.actionHandler.releaseAll()
+        self.actionModule.cleanup()
+        self.actionHandler.cleanup()
         if self.configWindow:
             self.configWindow.cleanup()
         if self.profiler:

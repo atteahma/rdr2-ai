@@ -1,7 +1,9 @@
-from time import time
+from time import time, sleep
 from math import floor
-from enum import IntEnum,auto
-import asyncio
+from enum import IntEnum, auto
+#import asyncio
+from multiprocessing import Process
+from queue import Queue
 
 from pyKey import press, pressKey, releaseKey
 import pydirectinput as pdi
@@ -38,37 +40,19 @@ class ActionHandler(Module):
         self.configWindow = configWindow
         self.showInConfigWindow = showInConfigWindow
 
-    def isDoneAction(self,action):
-        return action[0] == ActionType.DONE
-    
-    def handleActions(self, actions):
-        return asyncio.run(self.handleActionsAsync(actions))
-
-    async def handleActionsAsync(self, actions):
-        cont = True
-
-        for i, action in enumerate(actions):
+    # returns boolean continue
+    def doActions(self, actions):
+        for action in actions:
             if self.isDoneAction(action):
-                self.print(f'got done action.')
-                cont = False
-                lastIndex = i
-                break
-        else:
-            lastIndex = len(actions)
-        
-        # ensure no actions after 'done' are run
-        actions = actions[:lastIndex]
+                return False
+            self.doAction(action)
+        return True
 
-        if actions:
-            await asyncio.gather(*[self.doAction(action) for action in actions])
+    def isDoneAction(self, action):
+        return action[0] is ActionType.DONE
 
-        if self.printHeld:
-            self.printHeldKeys()
-
-        return cont            
-
-    async def doAction(self, action):
-        # whole thing needs a refactor
+    def doAction(self, action):
+        # whole thing needs a serious refactor, but it works for now
 
         actionType, key = action
 
@@ -90,11 +74,11 @@ class ActionHandler(Module):
                     return False
                 
                 pdi.mouseDown(button=pdiButton)
-                await asyncio.sleep(self.mousePressLength)
+                sleep(self.mousePressLength)
                 pdi.mouseUp(button=pdiButton)
             else:
                 pressKey(key=key)
-                await asyncio.sleep(self.keyPressLength)
+                sleep(self.keyPressLength)
                 releaseKey(key=key)
 
         elif actionType == ActionType.HOLD:
@@ -138,18 +122,18 @@ class ActionHandler(Module):
                 self.heldKeys.pop(key)
 
         elif actionType == ActionType.MOVE:
-            xOff,yOff,dt,iters = await self.getMouseMoveParams(key)
+            xOff,yOff,dt,iters = self.getMouseMoveParams(key)
             for _ in range(iters):
                 st = time()
                 MouseMoveTo(xOff, yOff, 0)
-                await asyncio.sleep(max(dt - (time()-st),0))
+                sleep(max(dt - (time()-st),0))
             
         elif actionType == ActionType.PAUSE:
-            await asyncio.sleep(key)
+            sleep(key)
 
         return True
     
-    async def getMouseMoveParams(self, reqParams):
+    def getMouseMoveParams(self, reqParams):
         xOff,yOff,dur = reqParams
 
         dist = (xOff ** 2 + yOff ** 2) ** 0.5
@@ -182,6 +166,9 @@ class ActionHandler(Module):
         keysStr = '\n'.join(keysByTimePressed)
 
         self.configWindow.addDrawEvent('heldKeys', keysStr)
+
+    def cleanup(self):
+        self.releaseAll()
 
     def releaseAll(self):
         for key in list(self.heldKeys.keys()):
