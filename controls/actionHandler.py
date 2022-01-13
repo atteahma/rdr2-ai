@@ -181,7 +181,7 @@ class ActionHandler(Module):
         keysByTimePressed = self.getHeldKeysByTime()
         keysStr = '\n'.join(keysByTimePressed)
 
-        self.configWindow.drawToTemplate('heldKeys', keysStr)
+        self.configWindow.addDrawEvent('heldKeys', keysStr)
 
     def releaseAll(self):
         for key in list(self.heldKeys.keys()):

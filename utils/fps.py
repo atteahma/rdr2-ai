@@ -14,7 +14,7 @@ class FPSCounter(Module):
         if self.frameStartTime:        
             currFPS = round(1/(time() - self.frameStartTime))
             if self.configWindow:
-                self.configWindow.drawToTemplate('fps', str(currFPS))
+                self.configWindow.addDrawEvent('fps', str(currFPS))
             else:
                 self.print(f'Frames/s = {currFPS}')
         

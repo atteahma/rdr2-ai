@@ -59,7 +59,6 @@ class Main(Module):
         self.actionHandler = ActionHandler(configWindow=self.configWindow, printHeld=True)
         self.fpsCounter = FPSCounter(configWindow=self.configWindow)
         self.pauseMenu = PauseMenu()
-        self.heartBeatModules = [Food()]
 
         # init mode module(s)
         mode = AIMode(args.mode)
@@ -79,20 +78,19 @@ class Main(Module):
             self.actionModule = Recorder(args.recordDir)
 
     def runMainLoop(self):
+        
         self.initCountdown()
 
         frameNum = 0
         run = True
+        if self.configWindow:
+            self.configWindow.startLoop()
 
         while run:
             self.print(f'frame {frameNum}')
 
             # capture window
             frame = self.capture.captureWindow()
-
-            # do heartbeat
-            # for hbModule in self.heartBeatModules:
-            #     hbModule.tick()
 
             # break if in pause menu
             gameIsPaused = self.pauseMenu.gameIsPaused(frame)
@@ -113,21 +111,13 @@ class Main(Module):
             frameNum += 1
             self.fpsCounter.tick()
 
-            if self.configWindow:
-                continueLoop = self.configWindow.render()
-                if not continueLoop:
-                    run = False
-
+        self.capture.cleanup()
         self.actionModule.cleanup()        
         self.actionHandler.releaseAll()
-
         if self.configWindow:
             self.configWindow.cleanup()
-        
         if self.profiler:
             self.profiler.printStats()
-        
-        self.capture.clean()
 
     def initCountdown(self):
         seconds = self.initTime

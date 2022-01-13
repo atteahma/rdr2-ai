@@ -129,12 +129,12 @@ class OptionsGetter(Module):
         # crop to only options area
         optionsFrame = applyBBox(frame,self.optionsBB)
         if self.showInConfigWindow and self.configWindow:
-            self.configWindow.drawToTemplate('optionsFrameRaw', optionsFrame)
+            self.configWindow.addDrawEvent('optionsFrameRaw', optionsFrame)
 
         # clean options frame for ocr
         optionsFramePreProc = self.preprocessOptionsFrame(optionsFrame)
         if self.showInConfigWindow and self.configWindow:
-            self.configWindow.drawToTemplate('optionsFrameClean', optionsFramePreProc)
+            self.configWindow.addDrawEvent('optionsFrameClean', optionsFramePreProc)
 
         # detect if there is a horizontal line. if there exists one, text below
         # it is simply the name of the item that you are crafting/cooking

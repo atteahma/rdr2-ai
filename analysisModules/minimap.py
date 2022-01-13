@@ -33,7 +33,7 @@ class MinimapReader:
             self.updateMinimapBB(frame)
         minimapIm = applyBBox(frame, self.minimapBB)
 
-        self.configWindow.drawToTemplate('rawMinimap', minimapIm)
+        self.configWindow.addDrawEvent('rawMinimap', minimapIm)
 
         return minimapIm
 
@@ -89,7 +89,7 @@ class MinimapReader:
         #         cY = int(moments['m01'] / moments['m00'])
         #         pts.append((cX, cY))
         
-        self.configWindow.drawToTemplate('target', targetIm)
+        self.configWindow.addDrawEvent('target', targetIm)
         
         return cv2Loc
 
@@ -116,7 +116,7 @@ class MinimapReader:
         targetIm = minimapIm.copy()
         cv2.rectangle(targetIm, topLeft, bottomRight, (0,0,255), 3)
         cv2.line(targetIm, playerLoc, lineEnd, (0,255,0), 3)
-        self.configWindow.drawToTemplate('target', targetIm)
+        self.configWindow.addDrawEvent('target', targetIm)
 
         return targetLoc
 

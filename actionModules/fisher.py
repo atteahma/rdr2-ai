@@ -273,27 +273,18 @@ class Fisher(Module):
         filtr_w = np.append(np.append(filtr_o_w,[1]),np.flip(filtr_o_w))
         filtr = np.add.outer(filtr_h,filtr_w) / 2
         self.splashConvFilter = filtr ** 3
-        
-        self.optionsRuntimeHistory = [] # temp
+        self.splashConvFilter = self.splashConvFilter
 
     def cleanup(self):
         self.optionsGetter.cleanup()
-        
-        PrettyPrinter().pprint(self.stateMachine.invalidQueries)
-        
-        np.savetxt('optionsRuntimeHistory.csv',
-                   self.optionsRuntimeHistory,
-                   delimiter=', ',
-                   fmt='% s')
+
+        if self.stateMachine.invalidQueries:
+            PrettyPrinter().pprint(self.stateMachine.invalidQueries)
 
     def getActions(self, frame):
-        
-        s = time_ns() # temp
 
         # use options to get actions
         options = self.optionsGetter.getOptions(frame)
-
-        self.optionsRuntimeHistory.append(time_ns() - s) # temp
         
         # iterate fsm
         actions = self.stateMachine.getActionsAndUpdateState(options)
@@ -314,10 +305,10 @@ class Fisher(Module):
 
         self.print(f'state = {currState}')
         if self.configWindow:
-            self.configWindow.drawToTemplate('state', currState)
-            self.configWindow.drawToTemplate('fishperminute',str(fishperminute))
-            self.configWindow.drawToTemplate('numFishCaught', str(numFishCaught))
-            self.configWindow.drawToTemplate('numInvalidQueries', str(numInvalidQueries))
+            self.configWindow.addDrawEvent('state', currState)
+            self.configWindow.addDrawEvent('fishperminute',str(fishperminute))
+            self.configWindow.addDrawEvent('numFishCaught', str(numFishCaught))
+            self.configWindow.addDrawEvent('numInvalidQueries', str(numInvalidQueries))
         else:
             self.print(f'fish/min = {fishperminute}')
             self.print(f'fish caught = {numFishCaught}')
@@ -337,7 +328,7 @@ class Fisher(Module):
                 self.lastYankTime = time()
             
             if self.configWindow:
-                self.configWindow.drawToTemplate('isCalm', 'CALM')
+                self.configWindow.addDrawEvent('isCalm', 'CALM')
             else:
                 self.print('fish is CALM')
 
@@ -350,7 +341,7 @@ class Fisher(Module):
             self.currSpeed = 5
 
             if self.configWindow:
-                self.configWindow.drawToTemplate('isCalm', ('NOT CALM', (0,0,255)))
+                self.configWindow.addDrawEvent('isCalm', ('NOT CALM', (0,0,255)))
             else:
                 self.print('fish is NOT CALM')
 
@@ -376,7 +367,7 @@ class Fisher(Module):
                 self.calmState = False
 
         if self.configWindow:
-            self.configWindow.drawToTemplate('fishCalmScorePlot', [self.calmScores, calmScoreSm2])
+            self.configWindow.addDrawEvent('fishCalmScorePlot', [self.calmScores, calmScoreSm2])
 
         return self.calmState
 
@@ -405,11 +396,11 @@ class Fisher(Module):
 
         splash_im = gray_im[ cT:-cB , cL:-cR ]
         if self.configWindow:
-            self.configWindow.drawToTemplate('splashImRaw',splash_im)
+            self.configWindow.addDrawEvent('splashImRaw',splash_im)
         
             splash_bb_im = im.copy()
             cv2.rectangle(splash_bb_im, (cL,cT), (W-cR,H-cB), (0,0,255), thickness=5)
-            self.configWindow.drawToTemplate('splashBoundingBox', splash_bb_im)
+            self.configWindow.addDrawEvent('splashBoundingBox', splash_bb_im)
             
         if self.splashMean is None:
             # initialize
@@ -425,7 +416,7 @@ class Fisher(Module):
             self.calmPxMax = np.roll(self.calmPxMax, 1)
             self.calmPxMax[0] = np.max(conv_im)
             calmNormIm = conv_im / ( 1e-9 + np.max(self.calmPxMax))
-            self.configWindow.drawToTemplate('splashImThresh', calmNormIm)
+            self.configWindow.addDrawEvent('splashImThresh', calmNormIm)
 
         score = np.sum(conv_im ** 2) ** 0.5 / np.product(conv_im.shape)
 

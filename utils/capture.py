@@ -43,5 +43,5 @@ class Capture(Module):
         ySize = ceil(abs(y2 - y1) / self.stepSize)
         return ySize,xSize
 
-    def clean(self):
+    def cleanup(self):
         self.sct.close()

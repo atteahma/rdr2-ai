@@ -1,3 +1,6 @@
+from time import time, sleep
+from multiprocessing import Process, Queue, Lock
+
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
@@ -10,7 +13,13 @@ from rdr2_ai.configWindow.configWindowTemplate import ContentBoxInfo,ContentType
 
 class ConfigWindow(Module):
 
-    def __init__(self,winName,winLoc,template=None,winSize=None,bgColor=(0,0,0),font=cv2.FONT_HERSHEY_DUPLEX):
+    def __init__(self, winName,
+                       winLoc,
+                       drawFps=15,
+                       template=None,
+                       winSize=None,
+                       bgColor=(0,0,0),
+                       font=cv2.FONT_HERSHEY_DUPLEX):
         self.winName = winName
         self.winLoc = winLoc
         self.font = font
@@ -31,6 +40,11 @@ class ConfigWindow(Module):
             canvasShape = (winSize[0],winSize[1],3)
             self.canvas = np.zeros(canvasShape,dtype=np.float32)
             self.flush()
+        
+        # multiprocessing
+        self.drawFps = drawFps
+        self.drawQueue = Queue()
+        self.drawProcess = Process(target=self.drawLoop, daemon=True)
 
     def useTemplate(self, template):
         self.template = template
@@ -49,6 +63,27 @@ class ConfigWindow(Module):
         
         for st in self.staticTexts:
             self.drawText(st.text,st.location,st.size)
+    
+    def startLoop(self):
+        self.drawProcess.start()
+    
+    def endLoop(self):
+        self.drawProcess.terminate()
+
+    def drawLoop(self):
+        run = True
+        lastRenderTime = time()
+        while run:
+            name, data = self.drawQueue.get()
+            self.drawToTemplate(name, data)
+
+            deltaTime = time() - lastRenderTime
+            if deltaTime > 1/self.drawFps:
+                lastRenderTime = time()
+                self.render()
+
+    def addDrawEvent(self, name, data):
+        self.drawQueue.put((name, data))
 
     def drawToTemplate(self, name, data):
         if self.template is None:
@@ -148,4 +183,5 @@ class ConfigWindow(Module):
         return True
 
     def cleanup(self):
+        self.endLoop()
         cv2.destroyWindow(self.winName)
