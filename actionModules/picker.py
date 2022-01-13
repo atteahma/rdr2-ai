@@ -33,9 +33,11 @@ class PickerStateMachine(StateMachine):
         # specifics [trying out slightly different design to fisher: giving a lot more
         # analysis power to the state machine rather than precompute everything in main
         # action module and then use those to compute state.]
+
+        # needs to be able to handle cleanup somehow self.optionsGetter.cleanup()
         self.optionsGetter = OptionsGetter(configWindow=configWindow,
                                            showInConfigWindow=True)
-    
+
     def searching(self, frame):
         return [], PickerState.SEARCHING
     

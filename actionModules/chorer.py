@@ -37,7 +37,7 @@ class Chorer(Module):
         self.currChoreType = None
 
     def cleanup(self):
-        pass
+        self.optionsGetter.cleanup()
 
     def getActionsForMove(self, playerPoint, targetPoint):
         choreX, choreY = targetPoint

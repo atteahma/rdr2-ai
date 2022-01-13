@@ -21,7 +21,7 @@ class Cooker(Module):
         self.optionsGetter = OptionsGetter(configWindow=configWindow, showInConfigWindow=True)
 
     def cleanup(self):
-        pass
+        self.optionsGetter.cleanup()
 
     def getActions(self, frame):
         

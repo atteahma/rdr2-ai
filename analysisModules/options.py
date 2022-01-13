@@ -4,8 +4,10 @@ import cv2
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
-import pytesseract
-from pytesseract import Output
+# import pytesseract
+# from pytesseract import Output
+from PIL import Image
+from tesserocr import PyTessBaseAPI, PSM
 from spellchecker.spellchecker import SpellChecker
 
 from rdr2_ai import config
@@ -20,7 +22,7 @@ class OptionsGetter(Module):
     CRAFTING = 0b01
     COOKING = 0b10
 
-    RES_SKIP = 2
+    RES_SKIP = 1
 
     def __init__(self, configWindow: ConfigWindow, showInConfigWindow: bool = False, timeSkip: int = 1):
         self.optionsOffsetBR = config.optionsOffsetBR
@@ -46,7 +48,13 @@ class OptionsGetter(Module):
         self.showInConfigWindow = showInConfigWindow
 
         self.spellcheck = SpellChecker(distance=self.spellcheckDistance)
+
+        self.tesseractAPI = PyTessBaseAPI(path=join("C:\\Project\\tessdata\\"),
+                                          psm=PSM.SINGLE_LINE)
     
+    def cleanup(self):
+        self.tesseractAPI.End()
+
     def updateBoundingBoxes(self, frame):
         self.winSize = (frame.shape[1], frame.shape[0])
         self.optionsBB = ( self.winSize[0] - self.optionsOffsetBR[0],
@@ -210,20 +218,10 @@ class OptionsGetter(Module):
         optionWords = []
         for optionFrame in optionFramesList:
             optionFrame = optionFrame[::OptionsGetter.RES_SKIP , ::OptionsGetter.RES_SKIP]
-            ocrData = pytesseract.image_to_data(
-                optionFrame ^ 255, # switch black and white
-                config=self.OCRConfig,
-                output_type=Output.DICT
-            )
-
-            # filter out by minimum confidence set in config
-            goodWords = []
-            for word,conf in zip(ocrData['text'],ocrData['conf']):
-                if float(conf) > self.minOCRConfidence:
-                    goodWords.append(word)
-
-            if len(goodWords) > 0:
-                optionWords.append(' '.join(goodWords).lower())
+            
+            #newOptionsWords = self.getWords_PyTesseract(optionFrame)
+            newOptionsWords = self.getWords_TesserOCR(optionFrame)
+            optionWords.extend(newOptionsWords)
         
         optionWordsClean = []
         if len(optionWords) > 0:
@@ -233,6 +231,31 @@ class OptionsGetter(Module):
 
         return optionWordsClean
     
+    def getWords_TesserOCR(self, optionFrame):
+        pilOptionFrame = Image.fromarray(optionFrame ^ 255)
+        self.tesseractAPI.SetImage(pilOptionFrame)
+        text = self.tesseractAPI.GetUTF8Text()
+        return [text]
+
+    # def getWords_PyTesseract(self, optionFrame):
+    #     ocrData = pytesseract.image_to_data(
+    #         optionFrame ^ 255, # switch black and white
+    #         config=self.OCRConfig,
+    #         output_type=Output.DICT
+    #     )
+
+    #     # filter out by minimum confidence set in config
+    #     goodWords = []
+    #     for word,conf in zip(ocrData['text'],ocrData['conf']):
+    #         if float(conf) > self.minOCRConfidence:
+    #             goodWords.append(word)
+
+    #     optionWords = []
+    #     if len(goodWords) > 0:
+    #         optionWords.append(' '.join(goodWords).lower())
+        
+    #     return optionWords
+
     def cleanOCROutput(self, s):
         
         #print(f'unclean: {s}')

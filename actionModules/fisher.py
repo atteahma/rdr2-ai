@@ -277,6 +277,8 @@ class Fisher(Module):
         self.optionsRuntimeHistory = [] # temp
 
     def cleanup(self):
+        self.optionsGetter.cleanup()
+        
         PrettyPrinter().pprint(self.stateMachine.invalidQueries)
         
         np.savetxt('optionsRuntimeHistory.csv',
