@@ -15,7 +15,7 @@ from rdr2_ai.configWindow.configWindow import ConfigWindow
 from rdr2_ai.module import Module
 from rdr2_ai.utils.utils import applyBBox, dilate, segmentImage
 
-matplotlib.use('TkAgg')
+matplotlib.use('Agg')
 
 class OptionsGetter(Module):
 

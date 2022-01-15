@@ -2,16 +2,19 @@ from dataclasses import dataclass
 from enum import Enum, IntEnum, auto
 from time import time, time_ns
 from random import random
+import os
 
 import cv2
 import numpy as np
 from scipy.signal import convolve2d
 import matplotlib.pyplot as plt
 from pprint import PrettyPrinter
+from pynput.keyboard import Listener
 
 from rdr2_ai.configWindow.configWindow import ConfigWindow
 from rdr2_ai.configWindow.configWindowTemplate import ConfigWindowTemplate,ContentType
 from rdr2_ai.controls.actionHandler import ActionType
+from rdr2_ai.data.collector import FishData
 from rdr2_ai.module import Module
 from rdr2_ai.utils.state import StateMachine
 from rdr2_ai.utils.utils import allAnyCloseEnough, anyCloseEnough, closeEnough
@@ -117,7 +120,7 @@ class FisherStateMachine(StateMachine):
 
         if len(options) == 2 and anyCloseEnough('bait', options):
             # equip previous bait/lure
-            return [(ActionType.TAP, 'e'), (ActionType.PAUSE, 0.5), (ActionType.MOVE, (600, 0, 1))], FisherState.PRE
+            return [(ActionType.TAP, 'e')], FisherState.PRE
 
         if anyCloseEnough('grip reel', options):
             # we are not gripping  the reel
@@ -239,6 +242,7 @@ class FisherStateMachine(StateMachine):
         a = [(ActionType.TAP, decisionKey),(ActionType.PAUSE,2),(ActionType.MOVE, (self.xComp, 0, 1))]
 
         if len(options) == 1:
+            # just in case if our inventory is full of this type of fish
             a = [(ActionType.TAP, 'e'), (ActionType.TAP, 'f'),(ActionType.PAUSE,2),(ActionType.MOVE, (self.xComp, 0, 1))]
         
         return a, FisherState.PRE
@@ -246,6 +250,7 @@ class FisherStateMachine(StateMachine):
 class Fisher(Module):
 
     SKIP = 2
+    LOG = False
 
     def __init__(self, configWindow: ConfigWindow = None):
         self.configWindow = configWindow
@@ -273,7 +278,21 @@ class Fisher(Module):
         filtr_w = np.append(np.append(filtr_o_w,[1]),np.flip(filtr_o_w))
         filtr = np.add.outer(filtr_h,filtr_w) / 2
         self.splashConvFilter = filtr ** 3
-        self.splashConvFilter = self.splashConvFilter
+
+        # temp data collection
+        if Fisher.LOG:
+            self.dataCollector = FishData(['time', 'im', 'score', 'is_calm', 'key_is_calm'])
+            self.keyIsCalm = False
+            self.keyListener = Listener(on_press=self.keyDown, on_release=self.keyUp)
+            self.keyListener.start()
+
+    def keyDown(self, key):
+        if hasattr(key, 'char') and key.char == '*':
+            self.keyIsCalm = False
+    
+    def keyUp(self, key):
+        if hasattr(key, 'char') and key.char == '*':
+            self.keyIsCalm = True
 
     def cleanup(self):
         self.optionsGetter.cleanup()
@@ -288,6 +307,10 @@ class Fisher(Module):
         
         # iterate fsm
         actions = self.stateMachine.getActionsAndUpdateState(options)
+
+        if Fisher.LOG and self.stateMachine.state is FisherState.PRE:
+            # use as reset point for run data
+            self.dataCollector.write()
 
         # control/optimize the speed of the line while reeling
         if self.stateMachine.state is FisherState.FISH_HOOKED:
@@ -359,8 +382,8 @@ class Fisher(Module):
         calmScoreDiff = calmScoreSm2[1:] - calmScoreSm2[:-1]
 
         if calmScoreDiff[0] * calmScoreDiff[1] < 0:
-            # we are at a critical point
-            if calmScoreSm2[0] < calmScoreSm2[1]:
+            # derivative changed signs
+            if calmScoreDiff[0] > 0:
                 # we are at a calm point
                 self.calmState = True
             else:
@@ -368,6 +391,12 @@ class Fisher(Module):
 
         if self.configWindow:
             self.configWindow.addDrawEvent('fishCalmScorePlot', [self.calmScores, calmScoreSm2])
+
+        if Fisher.LOG:
+            self.dataCollector.log('time', time())
+            self.dataCollector.log('score', score)
+            self.dataCollector.log('is_calm', self.calmState)
+            self.dataCollector.log('key_is_calm', self.keyIsCalm)
 
         return self.calmState
 
@@ -382,12 +411,6 @@ class Fisher(Module):
         T = 0.50
         B = 0.38
 
-        # no fish bait-water bounding box
-        # L = 0.54
-        # R = 0.38
-        # T = 0.54
-        # B = 0.34
-
         H,W = gray_im.shape
         cT = int(T*H)
         cB = int(B*H)
@@ -395,6 +418,11 @@ class Fisher(Module):
         cR = int(R*W)
 
         splash_im = gray_im[ cT:-cB , cL:-cR ]
+
+        if Fisher.LOG:
+            pad = 50
+            splash_im_nn = gray_im[ cT-pad:-cB+pad , cL-pad:-cR+pad]
+            self.dataCollector.log('im', splash_im_nn)
         if self.configWindow:
             self.configWindow.addDrawEvent('splashImRaw',splash_im)
         
