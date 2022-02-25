@@ -271,8 +271,8 @@ class OptionsGetter(Module):
             if len(w) == 1:
                 continue
 
-            # if w not in self.spellcheck:
-            #     w = self.spellcheck.correction(w)
+            if w not in self.spellcheck:
+                w = self.spellcheck.correction(w)
             
             goodWords.append(w)
             

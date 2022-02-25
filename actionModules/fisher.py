@@ -255,7 +255,7 @@ class Fisher(Module):
     def __init__(self, configWindow: ConfigWindow = None):
         self.configWindow = configWindow
         self.optionsGetter = OptionsGetter(configWindow=configWindow, showInConfigWindow=True)
-        self.stateMachine = FisherStateMachine(pctKeepFish=1.0)
+        self.stateMachine = FisherStateMachine(pctKeepFish=0)
 
         self.startTime = time()
 
@@ -282,17 +282,22 @@ class Fisher(Module):
         # temp data collection
         if Fisher.LOG:
             self.dataCollector = FishData(['time', 'im', 'score', 'is_calm', 'key_is_calm'])
-            self.keyIsCalm = False
-            self.keyListener = Listener(on_press=self.keyDown, on_release=self.keyUp)
-            self.keyListener.start()
+        self.keyIsCalm = False
+        self.spacebarDown = False
+        self.keyListener = Listener(on_press=self.keyDown, on_release=self.keyUp)
+        self.keyListener.start()
 
     def keyDown(self, key):
         if hasattr(key, 'char') and key.char == '*':
             self.keyIsCalm = False
+        if hasattr(key, 'char') and key.char == ' ':
+            self.spacebarDown = True
     
     def keyUp(self, key):
         if hasattr(key, 'char') and key.char == '*':
             self.keyIsCalm = True
+        if hasattr(key, 'char') and key.char == ' ':
+            self.spacebarDown = False
 
     def cleanup(self):
         self.optionsGetter.cleanup()
@@ -371,6 +376,10 @@ class Fisher(Module):
         return actions
 
     def fishIsCalm(self, im):
+        
+        if self.spacebarDown:
+            self.calmState = True
+            return self.calmState
 
         score = self.getFishCalmScore(im)
 
